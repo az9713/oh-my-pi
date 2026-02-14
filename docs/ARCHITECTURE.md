@@ -33,54 +33,33 @@ A comprehensive architecture document covering the design of oh-my-pi at multipl
 
 At the highest level, oh-my-pi is a terminal-based AI coding agent that sits between the user and multiple external systems.
 
-```mermaid
-graph TB
-    User([User in Terminal])
-
-    subgraph "oh-my-pi"
-        OMP[Coding Agent<br/>CLI Application]
-    end
-
-    subgraph "LLM Providers"
-        Anthropic[Anthropic<br/>Claude]
-        OpenAI[OpenAI<br/>GPT / o-series]
-        Google[Google<br/>Gemini]
-        Bedrock[AWS Bedrock]
-        Azure[Azure OpenAI]
-        Others[Groq / Mistral /<br/>xAI / Ollama / ...]
-    end
-
-    subgraph "Local System"
-        FS[File System<br/>Project Files]
-        Shell[Shell / Bash<br/>Command Execution]
-        Git[Git Repository]
-        LSP[Language Servers<br/>40+ Languages]
-        Python[Python / IPython<br/>Kernel]
-        Browser[Headless Browser<br/>Puppeteer]
-    end
-
-    subgraph "Remote Systems"
-        Web[Web / Search<br/>80+ Scrapers]
-        SSH[Remote Servers<br/>via SSH]
-        MCP[MCP Servers<br/>External Tools]
-    end
-
-    User --> OMP
-    OMP --> Anthropic
-    OMP --> OpenAI
-    OMP --> Google
-    OMP --> Bedrock
-    OMP --> Azure
-    OMP --> Others
-    OMP --> FS
-    OMP --> Shell
-    OMP --> Git
-    OMP --> LSP
-    OMP --> Python
-    OMP --> Browser
-    OMP --> Web
-    OMP --> SSH
-    OMP --> MCP
+```
+                              +------------------+
+                              |  User in Terminal |
+                              +--------+---------+
+                                       |
+                                       v
+                        +------------------------------+
+                        |          oh-my-pi            |
+                        |    Coding Agent CLI App      |
+                        +--+--------+--------+--------++
+                           |        |        |         |
+          +----------------+--+  +--+------+ | +-------+----------+
+          |                   |  |         | | |                   |
+          v                   v  v         v v v                   v
+  +---------------+  +-----------+  +---------------+  +----------------+
+  | LLM Providers |  |   Local   |  |    Remote     |  |    Remote      |
+  |               |  |   System  |  |    Systems    |  |    Systems     |
+  | - Anthropic   |  |           |  |               |  |                |
+  |   Claude      |  | - Files   |  | - Web/Search  |  | - MCP Servers  |
+  | - OpenAI GPT  |  | - Shell   |  |   80+ sites   |  |   Ext. Tools   |
+  | - Google      |  | - Git     |  | - SSH Servers |  |                |
+  |   Gemini      |  | - LSP     |  |               |  |                |
+  | - AWS Bedrock |  |   40+ lang|  |               |  |                |
+  | - Azure       |  | - Python  |  |               |  |                |
+  | - Groq/xAI/   |  |   Kernel  |  |               |  |                |
+  |   Mistral/... |  | - Browser |  |               |  |                |
+  +---------------+  +-----------+  +---------------+  +----------------+
 ```
 
 **Key interactions:**
@@ -95,34 +74,51 @@ graph TB
 
 The monorepo contains 6 TypeScript packages and 3 Rust crates with a strict dependency hierarchy.
 
-```mermaid
-graph BT
-    subgraph "TypeScript Packages"
-        Utils["@oh-my-pi/pi-utils<br/><i>Logger, streams, temp files</i><br/>packages/utils/"]
-        Natives["@oh-my-pi/pi-natives<br/><i>Rust N-API bridge</i><br/>packages/natives/"]
-        TUI["@oh-my-pi/pi-tui<br/><i>Terminal UI, diff rendering</i><br/>packages/tui/"]
-        AI["@oh-my-pi/pi-ai<br/><i>Multi-provider LLM client</i><br/>packages/ai/"]
-        Agent["@oh-my-pi/pi-agent-core<br/><i>Agent loop, tool execution</i><br/>packages/agent/"]
-        CodingAgent["@oh-my-pi/pi-coding-agent<br/><i>Main CLI application</i><br/>packages/coding-agent/"]
-        Stats["@oh-my-pi/omp-stats<br/><i>Observability dashboard</i><br/>packages/stats/"]
-    end
+```
+  TypeScript Packages                           Rust Crates
+  =====================                         ============
 
-    subgraph "Rust Crates"
-        PiNatives["crates/pi-natives/<br/><i>~7,500 lines Rust N-API addon</i>"]
-        BrushCore["crates/brush-core-vendored/<br/><i>Embedded bash engine</i>"]
-        BrushBuiltins["crates/brush-builtins-vendored/<br/><i>Bash builtins</i>"]
-    end
-
-    Utils --> Natives
-    Natives --> TUI
-    TUI --> AI
-    AI --> Agent
-    Agent --> CodingAgent
-    Stats -.-> CodingAgent
-
-    BrushCore --> PiNatives
-    BrushBuiltins --> PiNatives
-    PiNatives -.->|"compiled to .node"| Natives
+  +-------------------------------------------+
+  | @oh-my-pi/pi-coding-agent                 |
+  | Main CLI application  (PRIMARY FOCUS)     |
+  | packages/coding-agent/                    |
+  +---------------------+---------------------+
+                        |
+                        | depends on
+                        v
+  +-------------------------------------------+    +------------------+
+  | @oh-my-pi/pi-agent-core                   |    | @oh-my-pi/       |
+  | Agent loop, tool execution                |    | omp-stats        |
+  | packages/agent/                           |    | Observability    |
+  +---------------------+---------------------+    | packages/stats/  |
+                        |                          +------------------+
+                        v
+  +-------------------------------------------+
+  | @oh-my-pi/pi-ai                           |
+  | Multi-provider LLM client (15+ providers) |
+  | packages/ai/                              |
+  +---------------------+---------------------+
+                        |
+                        v
+  +-------------------------------------------+
+  | @oh-my-pi/pi-tui                          |
+  | Terminal UI, differential rendering       |
+  | packages/tui/                             |
+  +---------------------+---------------------+
+                        |
+                        v
+  +-------------------------------------------+    +-------------------------------+
+  | @oh-my-pi/pi-natives                      |<---| crates/pi-natives/            |
+  | Rust N-API bridge (13 modules)            |    | ~7,500 lines Rust N-API addon |
+  | packages/natives/                         |    | compiled to .node binary      |
+  +---------------------+---------------------+    +------+------------+-----------+
+                        |                                  ^            ^
+                        v                                  |            |
+  +-------------------------------------------+    +------+------+  +--+-----------+
+  | @oh-my-pi/pi-utils                        |    | brush-core- |  | brush-       |
+  | Logger, streams, temp files               |    | vendored/   |  | builtins-    |
+  | packages/utils/                           |    | Bash engine |  | vendored/    |
+  +-------------------------------------------+    +-------------+  +--------------+
 ```
 
 ### Package Responsibilities
@@ -133,7 +129,7 @@ graph BT
 | `pi-natives` | Bridge | `grep()`, `glob()`, `visibleWidth()`, `highlightCode()`, `Shell`, `PtySession` | TypeScript wrappers around 13 Rust N-API modules |
 | `pi-tui` | UI | `TUI`, `Editor`, `Container`, `Markdown`, `SelectList` | Differential rendering engine and UI components |
 | `pi-ai` | LLM | `stream()`, `streamSimple()`, `getModel()`, provider implementations | Multi-provider streaming client (15+ providers) |
-| `pi-agent-core` | Runtime | `Agent`, `agentLoop()`, tool execution, event system | Core agent loop: prompt → model → tools → response |
+| `pi-agent-core` | Runtime | `Agent`, `agentLoop()`, tool execution, event system | Core agent loop: prompt -> model -> tools -> response |
 | `pi-coding-agent` | App | `AgentSession`, modes, tools, extensions, discovery | **Primary focus** - the full CLI application |
 
 ### Rust Native Modules
@@ -162,96 +158,74 @@ The Rust crate (`crates/pi-natives/`) compiles to a platform-specific `.node` ad
 
 The coding-agent (`packages/coding-agent/src/`) has a layered architecture where each layer depends only on the layers below it.
 
-```mermaid
-graph TB
-    subgraph "CLI Layer"
-        CLI["cli.ts<br/><i>Command routing</i>"]
-        Args["cli/args.ts<br/><i>Argument parsing</i>"]
-        Commands["commands/<br/><i>launch, commit, config,<br/>grep, plugin, setup, ...</i>"]
-    end
-
-    subgraph "Mode Layer"
-        Interactive["modes/interactive-mode.ts<br/><i>TUI with differential rendering</i>"]
-        Print["modes/print-mode.ts<br/><i>Non-interactive stdout</i>"]
-        RPC["modes/rpc/rpc-mode.ts<br/><i>JSON stdin/stdout protocol</i>"]
-        Components["modes/components/<br/><i>Footer, editor, selectors,<br/>messages, tool display</i>"]
-        Controllers["modes/controllers/<br/><i>Command, event, input,<br/>selector, extension UI</i>"]
-    end
-
-    subgraph "Core Layer"
-        Session["session/agent-session.ts<br/><i>THE central abstraction</i>"]
-        SDK["sdk.ts<br/><i>Session factory + discovery</i>"]
-        SysProm["system-prompt.ts<br/><i>System prompt builder</i>"]
-        Main["main.ts<br/><i>Startup orchestrator</i>"]
-        SessionMgr["session/session-manager.ts<br/><i>JSONL persistence</i>"]
-        Settings["config/settings-manager.ts<br/><i>User preferences</i>"]
-    end
-
-    subgraph "Tool Layer"
-        Tools["tools/<br/><i>read, write, edit, bash,<br/>grep, find, python, ssh,<br/>browser, task, todo, ...</i>"]
-        ToolResult["tools/tool-result.ts<br/><i>ToolResultBuilder</i>"]
-        OutputUtils["tools/output-utils.ts<br/><i>TailBuffer, artifacts</i>"]
-    end
-
-    subgraph "Extension Layer"
-        Hooks["extensibility/hooks/<br/><i>Event interception</i>"]
-        Extensions["extensibility/extensions/<br/><i>Lifecycle plugins</i>"]
-        CustomTools["extensibility/custom-tools/<br/><i>User-defined tools</i>"]
-        Skills["extensibility/skills.ts<br/><i>On-demand capabilities</i>"]
-        Plugins["extensibility/plugins/<br/><i>npm-based plugins</i>"]
-    end
-
-    subgraph "Discovery Layer"
-        Capability["capability/<br/><i>Unified type registry</i>"]
-        Discovery["discovery/<br/><i>Claude, Cursor, Windsurf,<br/>Gemini, Codex, Cline,<br/>Copilot, VS Code</i>"]
-    end
-
-    subgraph "Integration Layer"
-        WebScrape["web/scrapers/<br/><i>80+ site-specific scrapers</i>"]
-        WebSearch["web/search/<br/><i>Anthropic, Perplexity, Exa</i>"]
-        LSPClient["lsp/<br/><i>40+ language servers</i>"]
-        IPython["ipy/<br/><i>Python/IPython kernel</i>"]
-        MCPMgr["mcp/<br/><i>MCP server management</i>"]
-        TaskExec["task/<br/><i>Subagent spawning</i>"]
-        SSHExec["ssh/<br/><i>Remote execution</i>"]
-    end
-
-    CLI --> Main
-    Args --> Main
-    Commands --> Main
-    Main --> SDK
-    SDK --> Session
-    SDK --> SysProm
-
-    Interactive --> Session
-    Print --> Session
-    RPC --> Session
-    Components --> Interactive
-    Controllers --> Interactive
-
-    Session --> Tools
-    Session --> SessionMgr
-    Session --> Settings
-
-    Tools --> ToolResult
-    Tools --> OutputUtils
-
-    Session --> Hooks
-    Session --> Extensions
-    Session --> CustomTools
-    Session --> Skills
-
-    Extensions --> Capability
-    Hooks --> Capability
-    Capability --> Discovery
-
-    Tools --> WebScrape
-    Tools --> WebSearch
-    Tools --> LSPClient
-    Tools --> IPython
-    Tools --> MCPMgr
-    Tools --> TaskExec
-    Tools --> SSHExec
+```
+  +=========================================================================+
+  |  CLI LAYER                                                              |
+  |                                                                         |
+  |  cli.ts -----> main.ts                                                  |
+  |  cli/args.ts   commands/ (launch, commit, config, grep, plugin, setup)  |
+  +====================================+====================================+
+                                       |
+                                       v
+  +=========================================================================+
+  |  MODE LAYER                                                             |
+  |                                                                         |
+  |  modes/interactive-mode.ts    modes/print-mode.ts    modes/rpc/         |
+  |  (TUI + diff rendering)      (non-interactive)       (JSON protocol)    |
+  |                                                                         |
+  |  modes/components/            modes/controllers/                        |
+  |  (footer, editor, msgs)      (command, event, input, selector)          |
+  +====================================+====================================+
+                                       |
+                                       v
+  +=========================================================================+
+  |  CORE LAYER                                                             |
+  |                                                                         |
+  |  session/agent-session.ts  <--- THE central abstraction                 |
+  |  sdk.ts                    <--- Session factory + discovery              |
+  |  system-prompt.ts          <--- System prompt builder                    |
+  |  main.ts                   <--- Startup orchestrator                     |
+  |  session/session-manager.ts     config/settings-manager.ts              |
+  +====================================+====================================+
+                                       |
+                                       v
+  +=========================================================================+
+  |  TOOL LAYER                                                             |
+  |                                                                         |
+  |  tools/ (read, write, edit, bash, grep, find, python, ssh, browser,     |
+  |          task, todo, web-search, web-fetch, notebook, lsp, ...)         |
+  |  tools/tool-result.ts          tools/output-utils.ts                    |
+  +====================================+====================================+
+                                       |
+                                       v
+  +=========================================================================+
+  |  EXTENSION LAYER                                                        |
+  |                                                                         |
+  |  extensibility/hooks/           extensibility/extensions/               |
+  |  (event interception)           (lifecycle plugins)                     |
+  |  extensibility/custom-tools/    extensibility/skills.ts                 |
+  |  extensibility/plugins/         (npm-based plugins)                     |
+  +====================================+====================================+
+                                       |
+                                       v
+  +=========================================================================+
+  |  DISCOVERY LAYER                                                        |
+  |                                                                         |
+  |  capability/ (unified type registry, one per capability type)           |
+  |  discovery/ (Claude, Cursor, Windsurf, Gemini, Codex, Cline,           |
+  |              Copilot, VS Code)                                          |
+  +====================================+====================================+
+                                       |
+                                       v
+  +=========================================================================+
+  |  INTEGRATION LAYER                                                      |
+  |                                                                         |
+  |  web/scrapers/   web/search/   lsp/        ipy/       mcp/             |
+  |  80+ sites       3 providers   40+ langs   Python     MCP servers      |
+  |                                            kernel                       |
+  |  task/           ssh/                                                   |
+  |  Subagent spawn  Remote exec                                            |
+  +=========================================================================+
 ```
 
 ### Key Source Directories
@@ -279,54 +253,61 @@ graph TB
 
 The startup sequence from `omp` command to ready-for-input state.
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant CLI as cli.ts
-    participant Main as main.ts
-    participant SDK as sdk.ts
-    participant Session as AgentSession
-    participant Mode as InteractiveMode
-
-    User->>CLI: omp [args]
-    CLI->>CLI: Detect subcommand<br/>(default: "launch")
-    CLI->>Main: runRootCommand(parsed, rawArgs)
-
-    Main->>Main: Initialize theme
-    Main->>Main: Parse CLI arguments
-    Main->>SDK: discoverAuthStorage()
-    SDK-->>Main: AuthStorage (SQLite)
-    Main->>SDK: discoverModels(auth)
-    SDK-->>Main: ModelRegistry
-
-    Main->>Main: Initialize Settings
-    Main->>Main: buildSessionOptions()
-
-    Note over Main: Resolve system prompt,<br/>model, tools, skills,<br/>hooks, extensions
-
-    Main->>SDK: createAgentSession(options)
-
-    SDK->>SDK: Discover & load skills
-    SDK->>SDK: Discover rules (context + TTSR)
-    SDK->>SDK: Discover context files (AGENTS.md)
-    SDK->>SDK: Create tools via createTools()
-    SDK->>SDK: Discover MCP tools
-    SDK->>SDK: Load extensions
-    SDK->>SDK: Build tool registry
-    SDK->>SDK: Create Agent (pi-agent-core)
-    SDK->>SDK: Build system prompt
-    SDK->>Session: new AgentSession(config)
-    Session-->>SDK: session
-
-    SDK-->>Main: { session, extensions, mcpManager, ... }
-
-    Main->>Mode: new InteractiveMode(session, ...)
-    Mode->>Mode: init()
-    Mode->>Mode: Setup UI components
-    Mode->>Mode: Subscribe to agent events
-    Mode->>Mode: Show welcome screen
-
-    Mode-->>User: Ready for input
+```
+  User          cli.ts         main.ts          sdk.ts          AgentSession    InteractiveMode
+   |               |               |               |               |               |
+   |  omp [args]   |               |               |               |               |
+   +-------------->|               |               |               |               |
+   |               | Detect subcmd |               |               |               |
+   |               | (default:     |               |               |               |
+   |               |  "launch")    |               |               |               |
+   |               |               |               |               |               |
+   |               | runRootCommand(parsed, rawArgs)|               |               |
+   |               +-------------->|               |               |               |
+   |               |               |               |               |               |
+   |               |               | Initialize theme              |               |
+   |               |               | Parse CLI args                |               |
+   |               |               |               |               |               |
+   |               |               | discoverAuthStorage()         |               |
+   |               |               +-------------->|               |               |
+   |               |               |<- AuthStorage -+               |               |
+   |               |               |   (SQLite)    |               |               |
+   |               |               |               |               |               |
+   |               |               | discoverModels(auth)          |               |
+   |               |               +-------------->|               |               |
+   |               |               |<- ModelRegistry+               |               |
+   |               |               |               |               |               |
+   |               |               | buildSessionOptions()         |               |
+   |               |               | (resolve system prompt,       |               |
+   |               |               |  model, tools, skills,        |               |
+   |               |               |  hooks, extensions)           |               |
+   |               |               |               |               |               |
+   |               |               | createAgentSession(options)   |               |
+   |               |               +-------------->|               |               |
+   |               |               |               | Discover & load skills        |
+   |               |               |               | Discover rules (ctx + TTSR)   |
+   |               |               |               | Discover context files         |
+   |               |               |               | Create tools via createTools() |
+   |               |               |               | Discover MCP tools             |
+   |               |               |               | Load extensions                |
+   |               |               |               | Build tool registry            |
+   |               |               |               | Create Agent (pi-agent-core)   |
+   |               |               |               | Build system prompt            |
+   |               |               |               |               |               |
+   |               |               |               | new AgentSession(config)       |
+   |               |               |               +-------------->|               |
+   |               |               |               |<--- session --+               |
+   |               |               |<-- { session, extensions, mcpManager, ... }   |
+   |               |               |               |               |               |
+   |               |               | new InteractiveMode(session, ...)             |
+   |               |               +---------------------------------------------->|
+   |               |               |               |               |  init()       |
+   |               |               |               |               |  Setup UI     |
+   |               |               |               |               |  Subscribe    |
+   |               |               |               |               |  Welcome scr  |
+   |               |               |               |               |               |
+   |<-------------------------------------------------------------------------- Ready
+   |               |               |               |               |               |
 ```
 
 **Key files:**
@@ -341,56 +322,56 @@ sequenceDiagram
 
 The core interaction loop: user types a prompt, the LLM responds with text and tool calls, tools execute, results feed back to the LLM.
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Mode as InteractiveMode
-    participant Session as AgentSession
-    participant Agent as Agent<br/>(pi-agent-core)
-    participant Loop as agentLoop()
-    participant LLM as LLM Provider
-    participant Tools as Tool Registry
-
-    User->>Mode: Type prompt + Enter
-    Mode->>Session: prompt(text, options)
-    Session->>Session: Check for slash commands
-    Session->>Session: Check for prompt templates
-    Session->>Agent: prompt(userMessage)
-    Agent->>Loop: agentLoop(prompts, context, config)
-
-    loop Agent Turn Loop
-        Loop->>Loop: transformContext(messages)
-        Loop->>Loop: convertToLlm(messages)
-        Loop->>LLM: streamSimple(model, context, options)
-        LLM-->>Loop: AssistantMessageEventStream
-
-        Loop->>Loop: Buffer streaming events
-        Loop-->>Session: emit(message_start)
-        Session-->>Mode: event → render message
-
-        loop Streaming Chunks
-            LLM-->>Loop: text_delta / toolcall_delta
-            Loop-->>Session: emit(message_update)
-            Session-->>Mode: event → update UI
-        end
-
-        LLM-->>Loop: done (with tool_calls?)
-
-        alt Has Tool Calls
-            Loop-->>Session: emit(tool_execution_start)
-            Loop->>Tools: execute(toolCallId, params, signal)
-            Tools-->>Loop: AgentToolResult
-            Loop-->>Session: emit(tool_execution_end)
-            Loop->>Loop: Append tool results to context
-            Note over Loop: Continue loop<br/>(send results back to LLM)
-        else No Tool Calls
-            Loop-->>Session: emit(message_end)
-            Note over Loop: Exit loop
-        end
-    end
-
-    Session-->>Mode: emit(agent_end)
-    Mode-->>User: Show final response
+```
+  User       InteractiveMode   AgentSession     Agent         agentLoop()    LLM Provider    Tools
+   |               |               |               |               |               |           |
+   | Type prompt   |               |               |               |               |           |
+   +-------------->|               |               |               |               |           |
+   |               | prompt(text)  |               |               |               |           |
+   |               +-------------->|               |               |               |           |
+   |               |               | Check slash cmds              |               |           |
+   |               |               | Check templates               |               |           |
+   |               |               | prompt(userMsg)|              |               |           |
+   |               |               +-------------->|               |               |           |
+   |               |               |               | agentLoop()   |               |           |
+   |               |               |               +-------------->|               |           |
+   |               |               |               |               |               |           |
+   |               |               |    +----------+----- AGENT TURN LOOP --------+           |
+   |               |               |    |          |               |               |           |
+   |               |               |    |          | transformContext(messages)     |           |
+   |               |               |    |          | convertToLlm(messages)        |           |
+   |               |               |    |          |               |               |           |
+   |               |               |    |          | streamSimple(model, ctx, opts)|           |
+   |               |               |    |          +------------------------------>|           |
+   |               |               |    |          |               |               |           |
+   |               |               |    |   emit(message_start)   |               |           |
+   |               |<--------------+----+----------+               |               |           |
+   |               |  render msg   |    |          |               |               |           |
+   |               |               |    |          |    text_delta / toolcall_delta |           |
+   |               |               |    |   emit(message_update)  |<--------------+           |
+   |               |<--------------+----+----------+               |               |           |
+   |               |  update UI    |    |          |               |               |           |
+   |               |               |    |          |     done (with tool_calls?)   |           |
+   |               |               |    |          |               |<--------------+           |
+   |               |               |    |          |               |               |           |
+   |               |               |    |  if tool_calls:         |               |           |
+   |               |               |    |   emit(tool_exec_start) |               |           |
+   |               |               |    |          | execute(id, params, signal)   |           |
+   |               |               |    |          +---------------------------------------------->|
+   |               |               |    |          |               |               |   result  |
+   |               |               |    |          |<----------------------------------------------+
+   |               |               |    |   emit(tool_exec_end)   |               |           |
+   |               |               |    |          | Append results to context     |           |
+   |               |               |    |          | Continue loop (back to LLM)   |           |
+   |               |               |    |          |               |               |           |
+   |               |               |    |  if NO tool_calls:      |               |           |
+   |               |               |    |   emit(message_end)     |               |           |
+   |               |               |    |          | Exit loop     |               |           |
+   |               |               |    +----------+               |               |           |
+   |               |               |               |               |               |           |
+   |               |  emit(agent_end)              |               |               |           |
+   |<--------------+ Show response |               |               |               |           |
+   |               |               |               |               |               |           |
 ```
 
 **Key files:**
@@ -404,37 +385,64 @@ sequenceDiagram
 
 Detailed view of how a single tool call flows through the system, including hook/extension interception.
 
-```mermaid
-flowchart TB
-    LLM["LLM returns tool_call<br/>(e.g., bash with command)"]
-    ExtTC["Extension emitToolCall()"]
-    HookTC["Hook emitToolCall()"]
-    BlockCheck{Blocked?}
-    Execute["Tool.execute()<br/>(streaming via onUpdate)"]
-    ExtTR["Extension emitToolResult()"]
-    HookTR["Hook emitToolResult()"]
-    MetaWrap["wrapToolWithMetaNotice()<br/>Append truncation notices"]
-    Result["Final AgentToolResult"]
-    BackToLLM["Return to LLM context"]
-
-    LLM --> ExtTC
-    ExtTC --> HookTC
-    HookTC --> BlockCheck
-
-    BlockCheck -->|"Yes (block: true)"| Blocked["Return block reason<br/>as tool error"]
-    BlockCheck -->|No| Execute
-
-    Execute --> ExtTR
-    ExtTR --> HookTR
-    HookTR --> MetaWrap
-    MetaWrap --> Result
-    Result --> BackToLLM
-    Blocked --> BackToLLM
-
-    style LLM fill:#e1f5fe
-    style Execute fill:#e8f5e9
-    style Blocked fill:#ffebee
-    style BackToLLM fill:#e1f5fe
+```
+  +----------------------------------+
+  | LLM returns tool_call            |
+  | (e.g., bash with command)        |
+  +----------------+-----------------+
+                   |
+                   v
+  +----------------------------------+
+  | Extension emitToolCall()         |
+  +----------------+-----------------+
+                   |
+                   v
+  +----------------------------------+
+  | Hook emitToolCall()              |
+  +----------------+-----------------+
+                   |
+                   v
+              +----+----+
+              |Blocked? |
+              +--+----+-+
+                 |    |
+        Yes -----+    +----- No
+        |                    |
+        v                    v
+  +--------------+  +------------------+
+  | Return block |  | Tool.execute()   |
+  | reason as    |  | (streaming via   |
+  | tool error   |  |  onUpdate)       |
+  +---------+----+  +--------+---------+
+            |                |
+            |                v
+            |       +------------------+
+            |       | Extension        |
+            |       | emitToolResult() |
+            |       +--------+---------+
+            |                |
+            |                v
+            |       +------------------+
+            |       | Hook             |
+            |       | emitToolResult() |
+            |       +--------+---------+
+            |                |
+            |                v
+            |       +------------------+
+            |       | wrapToolWith     |
+            |       | MetaNotice()     |
+            |       | (truncation info)|
+            |       +--------+---------+
+            |                |
+            v                v
+  +----------------------------------+
+  |      Final AgentToolResult       |
+  +----------------+-----------------+
+                   |
+                   v
+  +----------------------------------+
+  |      Return to LLM context       |
+  +----------------------------------+
 ```
 
 **Extension interception points** (from `extensibility/extensions/runner.ts`):
@@ -458,51 +466,38 @@ emitToolResult(event: ToolResultEvent): Promise<ModifiedToolResult>
 
 How streaming data flows from the LLM provider through the system to the terminal.
 
-```mermaid
-flowchart LR
-    subgraph "LLM Provider"
-        API["HTTP/SSE Stream"]
-    end
+```
+  LLM Provider        pi-ai            pi-agent-core       pi-coding-agent          Mode Layer          pi-tui
+  ============     ============       ==============      =================       =============      ===========
 
-    subgraph "pi-ai"
-        EventStream["EventStream&lt;T&gt;<br/><i>Async iterator</i>"]
-        ProviderFn["Provider-specific<br/>stream function"]
-    end
-
-    subgraph "pi-agent-core"
-        AgentLoop["agentLoop()<br/><i>Buffers events,<br/>builds partial message</i>"]
-        AgentEmit["Agent.emit()<br/><i>Publish to subscribers</i>"]
-    end
-
-    subgraph "pi-coding-agent"
-        SessionHandler["AgentSession<br/>#handleAgentEvent()"]
-        TTSR["TTSR Manager<br/><i>Pattern matching<br/>on text_delta</i>"]
-        ExtEmit["Extension emit"]
-        Persist["SessionManager<br/><i>Append to JSONL</i>"]
-    end
-
-    subgraph "Mode Layer"
-        EventCtrl["EventController<br/><i>Update UI components</i>"]
-        StreamComp["AssistantMessage<br/>Component"]
-    end
-
-    subgraph "pi-tui"
-        TUIRender["TUI.render()<br/><i>Differential rendering</i>"]
-        Terminal["Terminal stdout"]
-    end
-
-    API --> ProviderFn
-    ProviderFn --> EventStream
-    EventStream --> AgentLoop
-    AgentLoop --> AgentEmit
-    AgentEmit --> SessionHandler
-    SessionHandler --> TTSR
-    SessionHandler --> ExtEmit
-    SessionHandler --> Persist
-    SessionHandler --> EventCtrl
-    EventCtrl --> StreamComp
-    StreamComp --> TUIRender
-    TUIRender --> Terminal
+  +----------+     +----------+       +-----------+       +---------------+       +------------+     +----------+
+  | HTTP/SSE |---->| Provider |------>| agentLoop |------>| AgentSession  |------>| Event      |---->| TUI      |
+  | Stream   |     | stream   |       | Buffer    |       | #handleAgent  |       | Controller |     | render() |
+  +----------+     | function |       | events,   |       | Event()       |       | Update UI  |     | Diff     |
+                   +----+-----+       | build     |       +-------+-------+       | components |     | render   |
+                        |             | partial   |           |   |   |           +------+-----+     +----+-----+
+                        v             | message   |           |   |   |                  |                |
+                   +----------+       +-----+-----+           |   |   |                  v                v
+                   | Event    |             |                  |   |   |           +------------+     +----------+
+                   | Stream   |             v                  |   |   |           | Assistant  |     | Terminal |
+                   | <T>      |       +-----------+            |   |   |           | Message    |     | stdout   |
+                   | Async    |       | Agent     |            |   |   |           | Component  |     +----------+
+                   | iterator |       | .emit()   |            |   |   |           +------------+
+                   +----------+       | Publish   |            |   |   |
+                                      +-----------+            |   |   |
+                                                               v   v   v
+                                                          +----+---+---+----+
+                                                          | TTSR   | Ext   |
+                                                          | Mgr    | emit  |
+                                                          | pattern| events|
+                                                          | match  |       |
+                                                          +--------+--+----+
+                                                                      |
+                                                                      v
+                                                              +-------+------+
+                                                              | SessionMgr   |
+                                                              | Append JSONL |
+                                                              +--------------+
 ```
 
 **Event types flowing through the pipeline:**
@@ -530,42 +525,83 @@ flowchart LR
 
 The complete event lifecycle showing every interception point available to hooks and extensions.
 
-```mermaid
-flowchart TB
-    Start([Session Start])
-    BeforeAgent["emitBeforeAgentStart()<br/><i>Inject messages,<br/>modify system prompt</i>"]
-    InputEvent["emitInput()<br/><i>Transform user text,<br/>handle custom input</i>"]
-    ContextEvent["emitContext(messages)<br/><i>Modify message array<br/>(chained through all hooks)</i>"]
-    ToolCall["emitToolCall()<br/><i>Block or allow</i>"]
-    ToolExec["Tool executes"]
-    ToolResult["emitToolResult()<br/><i>Modify output<br/>(chained modifications)</i>"]
-    TurnEnd["Turn end"]
-    Compact["emitCompacting()<br/><i>Custom compaction</i>"]
-    BranchEvent["emitSessionBranch()<br/><i>Can cancel</i>"]
-    TreeEvent["emitSessionTree()<br/><i>Can cancel</i>"]
-    Shutdown["emitSessionShutdown()<br/><i>Cleanup</i>"]
-
-    Start --> BeforeAgent
-    BeforeAgent --> InputEvent
-    InputEvent --> ContextEvent
-    ContextEvent --> ToolCall
-    ToolCall -->|Allowed| ToolExec
-    ToolCall -->|Blocked| TurnEnd
-    ToolExec --> ToolResult
-    ToolResult --> TurnEnd
-    TurnEnd -->|More turns| ContextEvent
-    TurnEnd -->|Done| Compact
-    Compact --> BranchEvent
-    BranchEvent --> TreeEvent
-    TreeEvent --> Shutdown
-
-    style BeforeAgent fill:#fff3e0
-    style InputEvent fill:#fff3e0
-    style ContextEvent fill:#fff3e0
-    style ToolCall fill:#ffebee
-    style ToolResult fill:#fff3e0
-    style Compact fill:#fff3e0
-    style Shutdown fill:#fff3e0
+```
+  +--------------------+
+  |   Session Start    |
+  +---------+----------+
+            |
+            v
+  +--------------------+
+  | emitBeforeAgent    |  Inject messages,
+  | Start()            |  modify system prompt
+  +---------+----------+
+            |
+            v
+  +--------------------+
+  | emitInput()        |  Transform user text,
+  |                    |  handle custom input
+  +---------+----------+
+            |
+            v
+  +--------------------+
+  | emitContext         |  Modify message array
+  | (messages)         |  (chained through all hooks)
+  +---------+----------+
+            |
+            v
+  +--------------------+
+  | emitToolCall()     |  Block or allow
+  +---+------------+---+
+      |            |
+  Allowed      Blocked
+      |            |
+      v            |
+  +----------+     |
+  | Tool     |     |
+  | executes |     |
+  +----+-----+     |
+       |           |
+       v           |
+  +----------+     |
+  | emitTool |     |
+  | Result() |     |
+  | (modify  |     |
+  |  output) |     |
+  +----+-----+     |
+       |           |
+       +-----+-----+
+             |
+             v
+  +--------------------+
+  |     Turn end       |
+  +---+--------+-------+
+      |        |
+  More turns   Done
+      |        |
+      |        v
+      |   +--------------------+
+      |   | emitCompacting()   |  Custom compaction
+      |   +---------+----------+
+      |             |
+      |             v
+      |   +--------------------+
+      |   | emitSession        |  Can cancel
+      |   | Branch()           |
+      |   +---------+----------+
+      |             |
+      |             v
+      |   +--------------------+
+      |   | emitSession        |  Can cancel
+      |   | Tree()             |
+      |   +---------+----------+
+      |             |
+      |             v
+      |   +--------------------+
+      |   | emitSession        |  Cleanup
+      |   | Shutdown()         |
+      |   +--------------------+
+      |
+      +---> (back to emitContext)
 ```
 
 **Extension API methods** (from `extensibility/extensions/types.ts`):
@@ -587,37 +623,35 @@ flowchart TB
 
 How conversations are stored as append-only JSONL trees.
 
-```mermaid
-flowchart TB
-    subgraph "Runtime (AgentSession)"
-        Messages["In-memory messages"]
-        LeafPtr["Leaf pointer<br/>(current branch tip)"]
-    end
+```
+  Runtime (AgentSession)            SessionManager                 JSONL File
+  ======================            ==============                 =========
 
-    subgraph "SessionManager"
-        Append["appendMessage()<br/>appendModelChange()<br/>appendCompaction()<br/>appendCustomEntry()"]
-        Build["buildSessionContext()<br/><i>Walk tree from leaf to root</i>"]
-        Tree["getTree()<br/><i>Full tree structure</i>"]
-    end
-
-    subgraph "JSONL File"
-        Header["Line 1: Session header<br/>{type: session, version: 3, id, cwd}"]
-        Entry1["Line 2: {type: message, id: A, parentId: null}"]
-        Entry2["Line 3: {type: message, id: B, parentId: A}"]
-        Entry3["Line 4: {type: message, id: C, parentId: B}"]
-        Branch["Line 5: {type: message, id: D, parentId: B}<br/><i>(branch from B)</i>"]
-        Compact["Line 6: {type: compaction, id: E, parentId: D}"]
-    end
-
-    Messages --> Append
-    Append --> Header
-    Append --> Entry1
-    Append --> Entry2
-    Append --> Entry3
-    Append --> Branch
-    Append --> Compact
-    LeafPtr --> Build
-    Build --> Messages
+  +------------------+             +----------------+
+  | In-memory        | appendMsg() |                |     Line 1: {type: session, version: 3,
+  | messages         +------------>| appendMessage  |              id, cwd}
+  +------------------+             | appendModel    |
+                                   | Change()       |     Line 2: {type: message, id: A,
+  +------------------+             | appendCompact  |              parentId: null}
+  | Leaf pointer     |             | ion()          |
+  | (current branch  |             | appendCustom   |     Line 3: {type: message, id: B,
+  |  tip)            |             | Entry()        |              parentId: A}
+  +--------+---------+             +-------+--------+
+           |                               |              Line 4: {type: message, id: C,
+           |                               |                       parentId: B}
+           |  buildSessionContext()         |
+           +------------------------------>|              Line 5: {type: message, id: D,
+           |  (walk tree from leaf to root)|                       parentId: B}  <-- branch
+           |                               |
+           |  getTree()                    |              Line 6: {type: compaction, id: E,
+           +------------------------------>|                       parentId: D}
+           |  (full tree structure)        |
+           +------------------+            |
+                              |            |
+                              v            v
+                     +------------------+
+                     | Rebuilt messages  |
+                     +------------------+
 ```
 
 **Tree structure example:**
@@ -627,7 +661,7 @@ flowchart TB
      |
      B (user prompt)
     / \
-   C   D  ← Branch point: two different responses
+   C   D  <-- Branch point: two different responses
    |   |
    ...  E (compaction of D's branch)
         |
@@ -646,34 +680,43 @@ flowchart TB
 
 When the conversation approaches the context window limit, compaction summarizes older messages.
 
-```mermaid
-sequenceDiagram
-    participant Session as AgentSession
-    participant Compactor as Compaction System
-    participant Ext as Extensions
-    participant LLM as LLM Provider
-    participant SM as SessionManager
-
-    Note over Session: Context usage > threshold<br/>or user types /compact
-
-    Session->>Ext: emit("session_before_compact")
-    Ext-->>Session: { cancel? }
-
-    alt Not cancelled
-        Session->>Compactor: compact(instructions?)
-        Compactor->>Compactor: Select messages to summarize<br/>(keep recent N tokens)
-        Compactor->>LLM: "Summarize this conversation..."
-        LLM-->>Compactor: Summary text
-
-        Compactor->>Ext: emit("compacting")<br/>Allow custom summarization
-        Ext-->>Compactor: Modified summary?
-
-        Compactor->>SM: appendCompaction(summary,<br/>firstKeptEntryId, tokensBefore)
-        SM->>SM: Write to JSONL
-
-        Compactor-->>Session: CompactionResult
-        Session->>Session: Rebuild message array<br/>(summary + kept messages)
-    end
+```
+  AgentSession       Extensions       Compaction System     LLM Provider     SessionManager
+       |                  |                  |                    |                |
+       | Context usage > threshold           |                    |                |
+       | (or user types /compact)            |                    |                |
+       |                  |                  |                    |                |
+       | emit("session_before_compact")      |                    |                |
+       +----------------->|                  |                    |                |
+       |<-- {cancel?} ---+                  |                    |                |
+       |                  |                  |                    |                |
+       |  [if not cancelled]                 |                    |                |
+       |                  |                  |                    |                |
+       | compact(instructions?)              |                    |                |
+       +------------------------------------>|                    |                |
+       |                  |                  |                    |                |
+       |                  |                  | Select messages to |                |
+       |                  |                  | summarize (keep    |                |
+       |                  |                  | recent N tokens)   |                |
+       |                  |                  |                    |                |
+       |                  |                  | "Summarize this..."                 |
+       |                  |                  +------------------->|                |
+       |                  |                  |<-- summary text --+                |
+       |                  |                  |                    |                |
+       |                  | emit("compacting")                   |                |
+       |                  |<-----------------+                    |                |
+       |                  +-- modified? ---->|                    |                |
+       |                  |                  |                    |                |
+       |                  |                  | appendCompaction(summary,           |
+       |                  |                  |   firstKeptEntryId, tokensBefore)   |
+       |                  |                  +------------------------------------>|
+       |                  |                  |                    |    Write JSONL  |
+       |                  |                  |                    |                |
+       |<------------ CompactionResult ------+                    |                |
+       |                  |                  |                    |                |
+       | Rebuild message array               |                    |                |
+       | (summary + kept messages)           |                    |                |
+       |                  |                  |                    |                |
 ```
 
 **Compaction preserves:**
@@ -692,50 +735,47 @@ sequenceDiagram
 
 How the Task tool spawns independent sub-agents for parallel work.
 
-```mermaid
-flowchart TB
-    subgraph "Parent Agent"
-        TaskTool["Task Tool<br/><i>tools/task.ts</i>"]
-        Parent["Parent AgentSession"]
-    end
+```
+  Parent Agent                    Task Executor                     Child Agent
+  ============                    =============                     ===========
 
-    subgraph "Task Executor"
-        Executor["task/executor.ts<br/>runSubprocess()"]
-        Setup["Setup Phase<br/><i>Validate depth, resolve model,<br/>create session file</i>"]
-        ChildSession["Child AgentSession<br/><i>Own tools, own context</i>"]
-        Progress["Progress Tracking<br/><i>Coalesced 150ms updates</i>"]
-    end
+  +------------+                  +--------------+
+  | Task Tool  |  runSubprocess() |              |
+  | tools/     +----------------->| executor.ts  |
+  | task.ts    |                  |              |
+  +------+-----+                  | Validate     |
+         ^                        | depth        |                  +--------------+
+         |                        | Resolve model|                  |              |
+         |                        | Create       |  new session     | Agent Loop   |
+         |                        | session file +----------------->| (independent |
+         |                        |              |                  |  execution)  |
+         |                        +------+-------+                  +------+-------+
+         |                               |                                 |
+         |                               |                                 v
+         |                               |                          +--------------+
+         |                               |                          | Child Tools  |
+         |                               |                          | read, write, |
+         |                               |                          | edit, bash.. |
+         |                               |                          +------+-------+
+         |                               |                                 |
+         |                        +------+-------+                         v
+         |  onProgress            | Progress     |                  +--------------+
+         |  (coalesced            | Tracking     |  events          | submit_result|
+         |   150ms updates)       | <------------+-<----------------+ tool         |
+         |<-----------------------+              |                  | (structured  |
+         |                        +------+-------+                  |  output)     |
+         |                               |                          +--------------+
+         |                               |
+         v                               v
+  +------------+                  +--------------+
+  | Parent     |<-- result -------| AgentTool    |
+  | AgentSess. |                  | Result       |
+  +------------+                  +--------------+
 
-    subgraph "Shared Resources"
-        MCPProxy["MCP Proxy Tools<br/><i>Reuse parent connections</i>"]
-        Auth["Auth Storage<br/><i>Shared credentials</i>"]
-        Models["Model Registry<br/><i>Shared model list</i>"]
-    end
-
-    subgraph "Child Agent"
-        ChildLoop["Agent Loop<br/><i>Independent execution</i>"]
-        ChildTools["Child Tools<br/><i>read, write, edit, bash, ...</i>"]
-        Submit["submit_result tool<br/><i>Return structured output</i>"]
-    end
-
-    TaskTool --> Executor
-    Executor --> Setup
-    Setup --> ChildSession
-    ChildSession --> ChildLoop
-    ChildLoop --> ChildTools
-    ChildTools --> Submit
-
-    Parent -.->|"shares"| MCPProxy
-    Parent -.->|"shares"| Auth
-    Parent -.->|"shares"| Models
-    MCPProxy --> ChildSession
-    Auth --> ChildSession
-    Models --> ChildSession
-
-    ChildLoop -->|"events"| Progress
-    Progress -->|"onProgress"| TaskTool
-    Submit -->|"result"| Executor
-    Executor -->|"AgentToolResult"| Parent
+  Shared Resources (reused from parent):
+  +---------------------------------------------+
+  | MCP Proxy Tools | Auth Storage | Model Reg.  |
+  +---------------------------------------------+
 ```
 
 **Task depth control:** Subagents track their nesting level via `taskDepth`. At max depth, the Task tool is removed to prevent infinite recursion.
@@ -752,41 +792,48 @@ flowchart TB
 
 How MCP (Model Context Protocol) servers are discovered, connected, and used.
 
-```mermaid
-sequenceDiagram
-    participant SDK as sdk.ts
-    participant MCPMgr as MCPManager
-    participant Config as .mcp.json
-    participant Transport as Stdio/HTTP<br/>Transport
-    participant Server as MCP Server<br/>(External Process)
-    participant ToolReg as Tool Registry
-
-    SDK->>MCPMgr: discoverAndConnect()
-    MCPMgr->>Config: Read .omp/mcp.json<br/>+ ~/.omp/agent/mcp.json
-
-    par Connect All Servers
-        MCPMgr->>Transport: Create transport
-        Transport->>Server: spawn / connect
-        Server-->>Transport: initialize response
-        Transport-->>MCPMgr: connection ready
-        MCPMgr->>Server: listTools()
-        Server-->>MCPMgr: tool definitions
-    end
-
-    Note over MCPMgr: Wait 250ms for connections<br/>Use cache for pending ones
-
-    MCPMgr->>MCPMgr: Create MCPTool wrappers
-    MCPMgr-->>ToolReg: CustomTool[] (bridged)
-
-    Note over ToolReg: Tools available to LLM
-
-    rect rgb(240, 248, 255)
-        Note over Server: During agent execution:
-        ToolReg->>MCPMgr: callTool(name, args)
-        MCPMgr->>Server: tools/call
-        Server-->>MCPMgr: result
-        MCPMgr-->>ToolReg: formatted result
-    end
+```
+  sdk.ts          MCPManager         .mcp.json Config      Transport       MCP Server       Tool Registry
+    |                 |                    |                   |               |                 |
+    | discoverAndConnect()                 |                   |               |                 |
+    +---------------->|                    |                   |               |                 |
+    |                 | Read .omp/mcp.json |                   |               |                 |
+    |                 | + ~/.omp/agent/    |                   |               |                 |
+    |                 |   mcp.json         |                   |               |                 |
+    |                 +------------------->|                   |               |                 |
+    |                 |<-- config ---------+                   |               |                 |
+    |                 |                    |                   |               |                 |
+    |                 |        +-- Connect all servers in PARALLEL --+        |                 |
+    |                 |        |           |                   |      |        |                 |
+    |                 | Create transport   |                   |      |        |                 |
+    |                 +-------------------------------------->|      |        |                 |
+    |                 |        |           |   spawn/connect   |      |        |                 |
+    |                 |        |           |                   +----->|        |                 |
+    |                 |        |           |   initialize resp |      |        |                 |
+    |                 |        |           |                   |<-----+        |                 |
+    |                 |<--------------------------------------+      |        |                 |
+    |                 |        |           |                   |      |        |                 |
+    |                 | listTools()        |                   |      |        |                 |
+    |                 +---------------------------------------------->|        |                 |
+    |                 |<-- tool definitions -------------------------+        |                 |
+    |                 |        +---------------------------------------------+                 |
+    |                 |                    |                   |               |                 |
+    |                 | Wait 250ms for connections             |               |                 |
+    |                 | (use cache for pending)                |               |                 |
+    |                 |                    |                   |               |                 |
+    |                 | Create MCPTool wrappers                |               |                 |
+    |                 +---------------------------------------------------------------->CustomTool[]
+    |                 |                    |                   |               |     (bridged)   |
+    |                 |                    |                   |               |                 |
+    |                 |      During agent execution:           |               |                 |
+    |                 |                    |                   |               |                 |
+    |                 |  callTool(name, args)                  |               |                 |
+    |<--------------------------------------------------------------- tools/call               |
+    |                 +---------------------------------------------->|        |                 |
+    |                 |                    |                   |       |        |                 |
+    |                 |<----- result ------------------------------------+     |                 |
+    |                 +--- formatted result ------------------------------------------->|        |
+    |                 |                    |                   |               |                 |
 ```
 
 **Key features:**
@@ -805,43 +852,35 @@ sequenceDiagram
 
 How the terminal UI efficiently updates the screen.
 
-```mermaid
-flowchart TB
-    subgraph "Component Tree"
-        TUI["TUI (root Container)"]
-        Welcome["WelcomeComponent"]
-        Chat["chatContainer"]
-        Pending["pendingMessagesContainer"]
-        Status["statusContainer"]
-        Todo["todoContainer"]
-        StatusLine["StatusLineComponent<br/><i>Footer bar</i>"]
-        EditorC["editorContainer"]
-        Editor["CustomEditor"]
-    end
+```
+  Component Tree                          Render Pipeline
+  ==============                          ===============
 
-    subgraph "Render Pipeline"
-        RenderCall["requestRender()"]
-        CompRender["Each component.render(width)<br/>→ string[]"]
-        Overlay["Overlay compositing<br/><i>Merge overlays into base lines</i>"]
-        Diff["Line-by-line diff<br/><i>Compare with previousLines[]</i>"]
-        SyncOut["Synchronized output<br/><i>ESC[?2026h ... ESC[?2026l</i>"]
-        Terminal["Terminal stdout"]
-    end
-
-    TUI --> Welcome
-    TUI --> Chat
-    TUI --> Pending
-    TUI --> Status
-    TUI --> Todo
-    TUI --> StatusLine
-    TUI --> EditorC
-    EditorC --> Editor
-
-    RenderCall --> CompRender
-    CompRender --> Overlay
-    Overlay --> Diff
-    Diff -->|Changed lines only| SyncOut
-    SyncOut --> Terminal
+  +---------------------------+
+  | TUI (root Container)      |           1. requestRender()
+  |                           |                    |
+  | +- WelcomeComponent      |                    v
+  | +- chatContainer         |           2. Each component.render(width)
+  | +- pendingMessagesContainer            --> string[]
+  | +- statusContainer       |                    |
+  | +- todoContainer         |                    v
+  | +- StatusLineComponent   |           3. Overlay compositing
+  |    (Footer bar)          |              Merge overlays into base lines
+  | +- editorContainer       |                    |
+  |    +- CustomEditor       |                    v
+  |                           |           4. Line-by-line diff
+  +---------------------------+              Compare with previousLines[]
+                                                   |
+                                          +--------+--------+
+                                          |                 |
+                                     Changed lines     Unchanged
+                                          |            (skip)
+                                          v
+                                  5. Synchronized output
+                                     ESC[?2026h ... ESC[?2026l
+                                          |
+                                          v
+                                     Terminal stdout
 ```
 
 **Rendering modes:**
@@ -870,74 +909,61 @@ flowchart TB
 
 `AgentSession` (`session/agent-session.ts`) is the central abstraction that all three modes share.
 
-```mermaid
-classDiagram
-    class AgentSession {
-        +agent: Agent
-        +sessionManager: SessionManager
-        +settings: Settings
-
-        -scopedModels: ScopedModel[]
-        -extensionRunner: ExtensionRunner
-        -toolRegistry: Map~string, AgentTool~
-        -ttsrManager: TtsrManager
-        -steeringMessages: string[]
-        -followUpMessages: string[]
-        -eventListeners: AgentSessionEventListener[]
-
-        +prompt(text, options): Promise~void~
-        +steer(text): Promise~void~
-        +followUp(text): Promise~void~
-        +abort(): Promise~void~
-
-        +setModel(model, role): Promise~void~
-        +cycleModel(direction): Promise~ModelCycleResult~
-
-        +compact(instructions): Promise~CompactionResult~
-        +getContextUsage(): ContextUsage
-
-        +branch(entryId): Promise~object~
-        +navigateTree(targetId): Promise~object~
-        +newSession(): Promise~boolean~
-
-        +executeBash(command, options): Promise~BashResult~
-        +executePython(code): Promise~PythonResult~
-
-        +subscribe(listener): () => void
-        +dispose(): Promise~void~
-
-        -handleAgentEvent(event): void
-        -emitExtensionEvent(event): void
-    }
-
-    class Agent {
-        +prompt(message): Promise~void~
-        +continue(): Promise~void~
-        +steer(message): void
-        +followUp(message): void
-        +subscribe(listener): () => void
-        +state: AgentState
-    }
-
-    class SessionManager {
-        +appendMessage(message): string
-        +buildSessionContext(): SessionContext
-        +getTree(): SessionTreeNode[]
-        +branch(fromId): void
-        +flush(): Promise~void~
-    }
-
-    class ExtensionRunner {
-        +emit(event): Promise~void~
-        +emitToolCall(event): Promise~object~
-        +emitToolResult(event): Promise~object~
-        +emitBeforeAgentStart(): Promise~object~
-        +getAllRegisteredTools(): CustomTool[]
-    }
-
-    AgentSession --> Agent : wraps
-    AgentSession --> SessionManager : persists via
-    AgentSession --> ExtensionRunner : delegates to
+```
+  +========================================================================+
+  |                           AgentSession                                 |
+  +========================================================================+
+  | Fields:                                                                |
+  |   +agent: Agent                                                        |
+  |   +sessionManager: SessionManager                                      |
+  |   +settings: Settings                                                  |
+  |   -scopedModels: ScopedModel[]                                         |
+  |   -extensionRunner: ExtensionRunner                                    |
+  |   -toolRegistry: Map<string, AgentTool>                                |
+  |   -ttsrManager: TtsrManager                                           |
+  |   -steeringMessages: string[]                                          |
+  |   -followUpMessages: string[]                                          |
+  |   -eventListeners: AgentSessionEventListener[]                         |
+  +------------------------------------------------------------------------+
+  | Methods:                                                               |
+  |   +prompt(text, options): Promise<void>                                |
+  |   +steer(text): Promise<void>                                          |
+  |   +followUp(text): Promise<void>                                       |
+  |   +abort(): Promise<void>                                              |
+  |                                                                        |
+  |   +setModel(model, role): Promise<void>                                |
+  |   +cycleModel(direction): Promise<ModelCycleResult>                    |
+  |                                                                        |
+  |   +compact(instructions): Promise<CompactionResult>                    |
+  |   +getContextUsage(): ContextUsage                                     |
+  |                                                                        |
+  |   +branch(entryId): Promise<object>                                    |
+  |   +navigateTree(targetId): Promise<object>                             |
+  |   +newSession(): Promise<boolean>                                      |
+  |                                                                        |
+  |   +executeBash(command, options): Promise<BashResult>                   |
+  |   +executePython(code): Promise<PythonResult>                          |
+  |                                                                        |
+  |   +subscribe(listener): () => void                                     |
+  |   +dispose(): Promise<void>                                            |
+  |                                                                        |
+  |   -handleAgentEvent(event): void                                       |
+  |   -emitExtensionEvent(event): void                                     |
+  +========================================================================+
+         |                        |                        |
+         | wraps                  | persists via           | delegates to
+         v                        v                        v
+  +--------------+    +------------------+    +--------------------+
+  |    Agent     |    |  SessionManager  |    |  ExtensionRunner   |
+  +--------------+    +------------------+    +--------------------+
+  | +prompt()    |    | +appendMessage() |    | +emit()            |
+  | +continue()  |    | +buildSession    |    | +emitToolCall()    |
+  | +steer()     |    |  Context()       |    | +emitToolResult()  |
+  | +followUp()  |    | +getTree()       |    | +emitBeforeAgent   |
+  | +subscribe() |    | +branch()        |    |  Start()           |
+  | +state       |    | +flush()         |    | +getAllRegistered   |
+  +--------------+    +------------------+    |  Tools()           |
+                                              +--------------------+
 ```
 
 **Internal event handling** in `#handleAgentEvent()`:
@@ -962,25 +988,56 @@ classDiagram
 
 The agent loop in `packages/agent/src/agent-loop.ts` implements the core prompt-tool-response cycle.
 
-```mermaid
-stateDiagram-v2
-    [*] --> TurnStart
-    TurnStart --> TransformContext: Process pending messages
-    TransformContext --> ConvertToLLM: Apply context modifications
-    ConvertToLLM --> StreamResponse: Call LLM provider
-    StreamResponse --> CheckToolCalls: Response complete
-
-    CheckToolCalls --> ExecuteTools: Has tool calls
-    CheckToolCalls --> CheckSteering: No tool calls
-
-    ExecuteTools --> CheckInterrupt: Tools complete
-    CheckInterrupt --> CheckSteering: No interrupt
-    CheckInterrupt --> TurnStart: Steering message received
-
-    CheckSteering --> TurnStart: Has steering/follow-up
-    CheckSteering --> AgentEnd: No more messages
-
-    AgentEnd --> [*]
+```
+                          +-------------+
+                          | Turn Start  |
+                          +------+------+
+                                 |
+                                 v
+                     +-----------+----------+
+                     | TransformContext     |
+                     | Process pending msgs |
+                     +-----------+----------+
+                                 |
+                                 v
+                     +-----------+----------+
+                     | ConvertToLLM        |
+                     | Apply context mods   |
+                     +-----------+----------+
+                                 |
+                                 v
+                     +-----------+----------+
+                     | StreamResponse      |
+                     | Call LLM provider    |
+                     +-----------+----------+
+                                 |
+                                 v
+                     +-----------+----------+
+                     | CheckToolCalls      |
+                     +---+-------------+---+
+                         |             |
+                  Has tool calls    No tool calls
+                         |             |
+                         v             v
+              +----------+---+  +------+--------+
+              | ExecuteTools |  | CheckSteering |
+              +----------+---+  +---+-------+---+
+                         |          |       |
+                         v      Has steer   No more
+              +----------+---+  /follow-up  messages
+              | Check        |      |           |
+              | Interrupt    |      |           v
+              +--+-------+--+      |    +------+---+
+                 |       |         |    | AgentEnd |
+          No interrupt  Steering   |    +----------+
+                 |      received   |
+                 v         |       |
+          +------+----+   |       |
+          | Check     |   |       |
+          | Steering  +---+-------+
+          +-----+-----+       |
+                |              |
+                +--> (back to Turn Start)
 ```
 
 **Tool concurrency modes:**
@@ -1003,48 +1060,49 @@ agent.followUp("also do this")  // Queued, delivered when agent has no more work
 
 The `pi-ai` package provides a unified streaming interface across 15+ providers.
 
-```mermaid
-flowchart TB
-    subgraph "Unified Interface"
-        Simple["streamSimple()<br/><i>High-level API</i>"]
-        Dispatcher["stream()<br/><i>Provider dispatcher</i>"]
-        OptionMap["mapOptionsForApi()<br/><i>Normalize options</i>"]
-    end
+```
+  Unified Interface
+  =================
 
-    subgraph "Provider Implementations"
-        Anthropic["streamAnthropic()<br/><i>anthropic-messages</i>"]
-        OpenAI["streamOpenAICompletions()<br/><i>openai-completions</i>"]
-        OpenAIR["streamOpenAIResponses()<br/><i>openai-responses</i>"]
-        Google["streamGoogle()<br/><i>google-generative-ai</i>"]
-        Vertex["streamVertex()<br/><i>google-vertex</i>"]
-        Bedrock["streamBedrock()<br/><i>bedrock-converse-stream</i>"]
-        Azure["streamAzure()<br/><i>azure-openai-responses</i>"]
-        Cursor["streamCursor()<br/><i>cursor-agent</i>"]
-    end
-
-    subgraph "Output"
-        EventStream["AssistantMessageEventStream<br/><i>Async iterator of events</i>"]
-    end
-
-    Simple --> OptionMap
-    OptionMap --> Dispatcher
-    Dispatcher -->|model.api| Anthropic
-    Dispatcher -->|model.api| OpenAI
-    Dispatcher -->|model.api| OpenAIR
-    Dispatcher -->|model.api| Google
-    Dispatcher -->|model.api| Vertex
-    Dispatcher -->|model.api| Bedrock
-    Dispatcher -->|model.api| Azure
-    Dispatcher -->|model.api| Cursor
-
-    Anthropic --> EventStream
-    OpenAI --> EventStream
-    OpenAIR --> EventStream
-    Google --> EventStream
-    Vertex --> EventStream
-    Bedrock --> EventStream
-    Azure --> EventStream
-    Cursor --> EventStream
+  +------------------+     +-------------------+
+  | streamSimple()   +---->| mapOptionsForApi()|
+  | (high-level API) |     | (normalize opts)  |
+  +------------------+     +--------+----------+
+                                    |
+                                    v
+                           +--------+----------+
+                           | stream()          |
+                           | (provider         |
+                           |  dispatcher)      |
+                           +---+---+---+---+---+
+                               |   |   |   |
+               model.api ------+   |   |   +------ model.api
+                               |   |   |
+                               v   v   v
+  +------------------+ +-------+---+ +--+---------------+ +------------------+
+  | streamAnthropic  | | streamOAI | | streamGoogle     | | streamBedrock    |
+  | anthropic-       | | Completions| | google-          | | bedrock-         |
+  | messages         | | openai-   | | generative-ai    | | converse-stream  |
+  +--------+---------+ | completions| +--------+---------+ +--------+---------+
+           |           +-----+-----+          |                     |
+           |                 |                 |                     |
+           v                 v                 v                     v
+  +--------+---+   +---------+-+ +-------------+--+ +---------------+-+
+  | streamOAI  |   | stream   | | streamVertex   | | streamAzure     |
+  | Responses  |   | Cursor   | | google-vertex  | | azure-openai-   |
+  | openai-    |   | cursor-  | +----------------+ | responses       |
+  | responses  |   | agent    |                     +-----------------+
+  +--------+---+   +----+-----+
+           |             |
+           +------+------+
+                  |
+                  v
+      +-----------------------+
+      | AssistantMessage      |
+      | EventStream           |
+      | (Async iterator of    |
+      |  events)              |
+      +-----------------------+
 ```
 
 **Thinking/reasoning mapping per provider:**
@@ -1068,69 +1126,41 @@ flowchart TB
 
 The capability system provides unified configuration loading from 8 AI coding tools.
 
-```mermaid
-flowchart TB
-    subgraph "Capability Registry (capability/)"
-        Define["defineCapability&lt;T&gt;()"]
-        Register["registerProvider&lt;T&gt;()"]
-        Load["loadCapability&lt;T&gt;()"]
-    end
+```
+  Capability Registry (capability/)
+  ==================================
 
-    subgraph "Capability Types"
-        CtxFile["context-file"]
-        Ext["extension"]
-        Hook["hook"]
-        Instr["instruction"]
-        MCPCap["mcp"]
-        Rule["rule"]
-        Skill["skill"]
-        SlashCmd["slash-command"]
-        SysProm["system-prompt"]
-        ToolCap["tool"]
-    end
+  defineCapability<T>() -----> Capability Types:
+                                 - context-file
+                                 - extension
+                                 - hook
+                                 - instruction
+                                 - mcp
+                                 - rule
+                                 - skill
+                                 - slash-command
+                                 - system-prompt
+                                 - tool
 
-    subgraph "Discovery Providers (discovery/)"
-        Builtin["builtin<br/><i>Built-in defaults</i>"]
-        Claude["claude<br/><i>.claude/ directories</i>"]
-        CursorD["cursor<br/><i>.cursor/, .cursorrules</i>"]
-        Windsurf["windsurf<br/><i>.windsurfrules</i>"]
-        GeminiD["gemini<br/><i>.gemini/ directories</i>"]
-        CodexD["codex<br/><i>.codex/, AGENTS.md</i>"]
-        ClineD["cline<br/><i>.clinerules, .mcp.json</i>"]
-        VSCode["vscode<br/><i>.vscode/ settings</i>"]
-        GitHub["github<br/><i>copilot-instructions.md</i>"]
-    end
+  registerProvider<T>() -----> Discovery Providers (discovery/):
 
-    Define --> CtxFile
-    Define --> Ext
-    Define --> Hook
-    Define --> Instr
-    Define --> MCPCap
-    Define --> Rule
-    Define --> Skill
-    Define --> SlashCmd
-    Define --> SysProm
-    Define --> ToolCap
+  +----------+  +----------+  +-----------+  +----------+  +----------+
+  | builtin  |  | claude   |  | cursor    |  | windsurf |  | gemini   |
+  | Built-in |  | .claude/ |  | .cursor/  |  | .wind-   |  | .gemini/ |
+  | defaults |  | dirs     |  | .cursor-  |  | surf-    |  | dirs     |
+  |          |  |          |  | rules     |  | rules    |  |          |
+  +----+-----+  +----+-----+  +----+------+  +----+-----+  +----+-----+
+       |              |             |              |              |
+       +------+-------+------+-----+------+-------+------+------+
+              |              |            |              |
+  +----+-----+  +----+------+  +----+----+  +----+------+
+  | codex    |  | cline     |  | vscode  |  | github    |
+  | .codex/  |  | .cline-   |  | .vscode/|  | copilot-  |
+  | AGENTS.md|  | rules     |  | settings|  | instruct  |
+  |          |  | .mcp.json |  |         |  | ions.md   |
+  +----------+  +-----------+  +---------+  +-----------+
 
-    Register --> Builtin
-    Register --> Claude
-    Register --> CursorD
-    Register --> Windsurf
-    Register --> GeminiD
-    Register --> CodexD
-    Register --> ClineD
-    Register --> VSCode
-    Register --> GitHub
-
-    Load --> |"Parallel load<br/>all providers"| Builtin
-    Load --> Claude
-    Load --> CursorD
-    Load --> Windsurf
-    Load --> GeminiD
-    Load --> CodexD
-    Load --> ClineD
-    Load --> VSCode
-    Load --> GitHub
+  loadCapability<T>() -----> Parallel load from ALL providers
 ```
 
 **Discovery flow for each capability:**
@@ -1159,30 +1189,39 @@ loadCapability(capabilityId, options)
 
 Sessions use an append-only tree stored as JSONL, enabling branching and time-travel.
 
-```mermaid
-graph TB
-    subgraph "JSONL File (append-only)"
-        H["Header: {type: session, version: 3, id, cwd}"]
-        A["Entry A: {type: message, id: A, parentId: null}<br/><i>User: 'Add auth system'</i>"]
-        B["Entry B: {type: message, id: B, parentId: A}<br/><i>Assistant: 'I'll use JWT...'</i>"]
-        C["Entry C: {type: message, id: C, parentId: B}<br/><i>User: 'Use OAuth instead'</i>"]
-        D["Entry D: {type: message, id: D, parentId: B}<br/><i>User: 'Add rate limiting'</i>"]
-        E["Entry E: {type: compaction, id: E, parentId: D}"]
-        F["Entry F: {type: message, id: F, parentId: E}<br/><i>User: 'Now add tests'</i>"]
-        L["Entry L: {type: label, targetId: B, label: 'before-oauth'}"]
-    end
+```
+  JSONL File (append-only)
+  ========================
 
-    H --> A
-    A --> B
-    B --> C
-    B --> D
-    D --> E
-    E --> F
+  Line 1: Header     {type: session, version: 3, id, cwd}
+  Line 2: Entry A    {type: message, id: A, parentId: null}    User: "Add auth system"
+  Line 3: Entry B    {type: message, id: B, parentId: A}       Assistant: "I'll use JWT..."
+  Line 4: Entry C    {type: message, id: C, parentId: B}       User: "Use OAuth instead"
+  Line 5: Entry D    {type: message, id: D, parentId: B}       User: "Add rate limiting"
+  Line 6: Entry E    {type: compaction, id: E, parentId: D}
+  Line 7: Entry F    {type: message, id: F, parentId: E}       User: "Now add tests"
+  Line 8: Entry L    {type: label, targetId: B, label: "before-oauth"}
 
-    style C fill:#ffebee
-    style D fill:#e8f5e9
-    style E fill:#fff3e0
-    style L fill:#e1f5fe
+
+  Tree visualization:
+
+       Header
+         |
+         A  (User: "Add auth system")
+         |
+         B  (Assistant: "I'll use JWT...")
+        / \
+       /   \
+      C     D  <-- Branch point
+      |     |
+  (OAuth  (Rate
+   path)   limit)
+            |
+            E  (compaction)
+            |
+            F  (new messages after compaction)
+
+  Label "before-oauth" points to --> B
 ```
 
 **Tree operations:**
@@ -1203,42 +1242,71 @@ graph TB
 
 For tools that produce potentially unbounded output (bash, Python, SSH), the OutputSink handles memory-safe streaming.
 
-```mermaid
-flowchart TB
-    subgraph "Tool Execution"
-        Cmd["Command running<br/>(bash, python, ssh)"]
-        Chunks["stdout/stderr chunks"]
-    end
+```
+  Tool Execution                OutputSink                    UI Preview
+  ==============                ==========                    ==========
 
-    subgraph "OutputSink"
-        Buffer["Memory buffer<br/><i>(up to 500KB)</i>"]
-        Check{"> threshold?"}
-        Spill["Spill to artifact file<br/><i>~/.omp/agent/sessions/.../artifacts/</i>"]
-        Truncate["Keep last N bytes<br/>in memory"]
-    end
-
-    subgraph "UI Preview"
-        TailBuf["TailBuffer<br/><i>Rolling last 64KB</i>"]
-        OnUpdate["onUpdate() callback"]
-        Component["BashExecutionComponent<br/><i>Live terminal output</i>"]
-    end
-
-    subgraph "Final Result"
-        Summary["OutputSummary<br/>{output, truncated, totalLines,<br/>totalBytes, artifactId}"]
-        ToolRes["ToolResultBuilder<br/>.text(output)<br/>.truncationFromSummary()<br/>.done()"]
-    end
-
-    Cmd --> Chunks
-    Chunks --> Buffer
-    Chunks --> TailBuf
-    Buffer --> Check
-    Check -->|Yes| Spill
-    Spill --> Truncate
-    Check -->|No| Buffer
-    TailBuf --> OnUpdate
-    OnUpdate --> Component
-    Buffer --> Summary
-    Summary --> ToolRes
+  +-----------+
+  | Command   |
+  | running   |    stdout/stderr chunks
+  | (bash,    +----------+----------+
+  | python,   |          |          |
+  | ssh)      |          |          |
+  +-----------+          |          |
+                         v          v
+              +----------+---+  +---+---------+
+              | Memory       |  | TailBuffer  |
+              | buffer       |  | Rolling     |
+              | (up to 500KB)|  | last 64KB   |
+              +------+-------+  +------+------+
+                     |                 |
+                     v                 v
+              +------+-------+  +------+------+
+              | > threshold? |  | onUpdate()  |
+              +--+--------+--+  | callback    |
+                 |        |     +------+------+
+                Yes       No           |
+                 |        |            v
+                 v        |     +------+------+
+           +-----+-----+ |     | BashExec    |
+           | Spill to   | |     | Component   |
+           | artifact   | |     | (live term  |
+           | file       | |     |  output)    |
+           | ~/.omp/    | |     +-------------+
+           | agent/     | |
+           | sessions/  | |
+           | .../       | |
+           | artifacts/ | |
+           +-----+------+ |
+                 |         |
+                 v         |
+           +-----+------+  |
+           | Keep last  |  |
+           | N bytes in |  |
+           | memory     |  |
+           +-----+------+  |
+                 |         |
+                 +----+----+
+                      |
+                      v
+              +-------+--------+
+              | OutputSummary   |
+              | {output,        |
+              |  truncated,     |
+              |  totalLines,    |
+              |  totalBytes,    |
+              |  artifactId}    |
+              +-------+--------+
+                      |
+                      v
+              +-------+--------+
+              | ToolResult     |
+              | Builder        |
+              | .text(output)  |
+              | .truncation    |
+              | FromSummary()  |
+              | .done()        |
+              +----------------+
 ```
 
 **Pattern used by streaming tools** (from `tools/bash.ts`, `tools/python.ts`, `tools/ssh.ts`):
@@ -1282,73 +1350,98 @@ return toolResult<BashToolDetails>({})
 
 The entire application is event-driven. Events flow through three layers:
 
-```mermaid
-flowchart LR
-    subgraph "pi-agent-core"
-        AE["AgentEvent<br/><i>message_start, message_update,<br/>message_end, tool_execution_*,<br/>turn_start, turn_end,<br/>agent_start, agent_end</i>"]
-    end
+```
+  pi-agent-core                pi-coding-agent                  Modes
+  ==============               ================                 =====
 
-    subgraph "pi-coding-agent"
-        ASE["AgentSessionEvent<br/><i>All AgentEvents +<br/>auto_compaction_*,<br/>auto_retry_*,<br/>ttsr_triggered,<br/>todo_reminder</i>"]
-    end
-
-    subgraph "Modes"
-        EC["EventController<br/><i>UI updates</i>"]
-        PM["Print Mode<br/><i>stdout/JSON</i>"]
-        RM["RPC Mode<br/><i>JSON protocol</i>"]
-    end
-
-    AE -->|"Agent.subscribe()"| ASE
-    ASE -->|"AgentSession.subscribe()"| EC
-    ASE -->|"AgentSession.subscribe()"| PM
-    ASE -->|"AgentSession.subscribe()"| RM
+  +------------------+         +--------------------+
+  | AgentEvent       |         | AgentSessionEvent  |
+  |                  |  Agent  |                    |  AgentSession
+  | - message_start  | .sub-   | All AgentEvents +  | .subscribe()
+  | - message_update | scribe()| - auto_compaction_*|----------+------+---------+
+  | - message_end    +-------->| - auto_retry_*     |          |      |         |
+  | - tool_exec_*    |         | - ttsr_triggered   |          v      v         v
+  | - turn_start     |         | - todo_reminder    |    +-----+--+ +-+------+ +-+------+
+  | - turn_end       |         |                    |    | Event  | | Print  | | RPC    |
+  | - agent_start    |         +--------------------+    | Ctrl   | | Mode   | | Mode   |
+  | - agent_end      |                                   | (UI    | | (std-  | | (JSON  |
+  +------------------+                                   | update)| | out)   | | proto) |
+                                                         +--------+ +--------+ +--------+
 ```
 
 ### TTSR (Time-Traveling Streamed Rules)
 
 Rules that inject themselves only when triggered by pattern matches in the LLM's output stream:
 
-```mermaid
-sequenceDiagram
-    participant LLM as LLM Provider
-    participant Loop as Agent Loop
-    participant TTSR as TtsrManager
-    participant Session as AgentSession
-
-    LLM->>Loop: text_delta "import lodash..."
-    Loop->>Session: emit(message_update)
-    Session->>TTSR: check(text_delta)
-    TTSR->>TTSR: Pattern match:<br/>"lodash" matches<br/>"don't use lodash" rule
-
-    TTSR-->>Session: ttsr_triggered
-    Session->>Session: Abort current stream
-    Session->>Session: Inject rule as<br/>system reminder
-    Session->>Loop: Retry from same point
-
-    Note over LLM: LLM now sees the rule<br/>and avoids lodash
+```
+  LLM Provider          Agent Loop         TtsrManager        AgentSession
+       |                     |                   |                  |
+       | text_delta           |                   |                  |
+       | "import lodash..."  |                   |                  |
+       +-------------------->|                   |                  |
+       |                     | emit(message_update)                 |
+       |                     +-------------------------------------->|
+       |                     |                   |                  |
+       |                     |                   | check(text_delta)|
+       |                     |                   |<-----------------+
+       |                     |                   |                  |
+       |                     |                   | Pattern match:   |
+       |                     |                   | "lodash" matches |
+       |                     |                   | "don't use       |
+       |                     |                   |  lodash" rule    |
+       |                     |                   |                  |
+       |                     |                   | ttsr_triggered   |
+       |                     |                   +----------------->|
+       |                     |                   |                  |
+       |                     |                   |   Abort current  |
+       |                     |                   |   stream         |
+       |                     |                   |                  |
+       |                     |                   |   Inject rule as |
+       |                     |                   |   system reminder|
+       |                     |                   |                  |
+       |                     |  Retry from same point              |
+       |                     |<-------------------------------------+
+       |                     |                   |                  |
+       |  LLM now sees the rule and avoids lodash                  |
+       |                     |                   |                  |
 ```
 
 **Zero upfront cost:** TTSR rules consume no context tokens until triggered. Each rule fires at most once per session.
 
 ### Error Handling and Recovery
 
-```mermaid
-flowchart TB
-    Error["Error during agent execution"]
-    Retryable{Retryable?}
-    AutoRetry["Auto-retry<br/><i>Up to 3 attempts<br/>with exponential backoff</i>"]
-    ContextOverflow{Context overflow?}
-    AutoCompact["Auto-compaction<br/><i>Summarize + retry</i>"]
-    Report["Report error to user"]
-
-    Error --> Retryable
-    Retryable -->|"Rate limit,<br/>network error"| AutoRetry
-    Retryable -->|No| ContextOverflow
-    AutoRetry -->|"Still failing"| Report
-    ContextOverflow -->|Yes| AutoCompact
-    ContextOverflow -->|No| Report
-    AutoCompact -->|"Success"| Error
-    AutoCompact -->|"Still failing"| Report
+```
+  +-------------------------------+
+  | Error during agent execution  |
+  +---------------+---------------+
+                  |
+                  v
+          +-------+--------+
+          | Retryable?     |
+          +---+--------+---+
+              |        |
+         Yes  |        |  No
+  (rate limit,|        |
+  network err)|        v
+              |  +-----+-----------+
+              |  | Context overflow?|
+              v  +---+--------+----+
+  +-----------+--+   |        |
+  | Auto-retry   |  Yes       No
+  | Up to 3      |   |        |
+  | attempts w/  |   v        v
+  | exponential  | +-+--------+----+
+  | backoff      | | Auto-compaction|
+  +------+-------+ | Summarize +   |
+         |         | retry          |
+    Still failing  +---+--------+--+
+         |             |        |
+         v          Success   Still
+  +------+-------+    |     failing
+  | Report error |    |        |
+  | to user      |    v        v
+  +--------------+  (retry)  Report
+                             error
 ```
 
 ### Configuration Priority
@@ -1357,13 +1450,17 @@ Settings are resolved with this precedence (highest to lowest):
 
 ```
 CLI flags (--model, --thinking, etc.)
-    ↓
+    |
+    v
 Environment variables (PI_SMOL_MODEL, etc.)
-    ↓
+    |
+    v
 Project settings (.omp/settings.json)
-    ↓
+    |
+    v
 User settings (~/.omp/agent/settings.json)
-    ↓
+    |
+    v
 Built-in defaults
 ```
 
