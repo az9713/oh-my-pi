@@ -1,0 +1,262 @@
+//! Filesystem discovery with glob patterns, ignore semantics, and shared scan
+//! caching.
+//!
+//! # Overview
+//! Resolves a search root, obtains scanned entries via [`fs_cache`], applies
+//! glob matching plus optional file-type filtering, and optionally streams each
+//! accepted match through a callback.
+//!
+//! The walker always skips `.git`, and skips `node_modules` unless explicitly
+//! requested.
+//!
+//! # Example
+//! ```ignore
+//! // JS: await native.glob({ pattern: "*.rs", path: "." })
+//! ```
+
+use std::path::Path;
+
+use globset::{Glob, GlobSet, GlobSetBuilder};
+use napi::{
+	bindgen_prelude::*,
+	threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
+};
+use napi_derive::napi;
+
+// Re-export entry types so existing `glob::FileType` / `glob::GlobMatch` paths still work.
+pub use crate::fs_cache::{FileType, GlobMatch};
+use crate::{fs_cache, task};
+
+/// Input options for `glob`, including traversal, filtering, and cancellation.
+#[napi(object)]
+pub struct GlobOptions<'env> {
+	/// Glob pattern to match (e.g., "*.ts").
+	pub pattern:              String,
+	/// Directory to search.
+	pub path:                 String,
+	/// Filter by file type: "file", "dir", or "symlink".
+	#[napi(js_name = "fileType")]
+	pub file_type:            Option<FileType>,
+	/// Include hidden files (default: false).
+	pub hidden:               Option<bool>,
+	/// Maximum number of results to return.
+	#[napi(js_name = "maxResults")]
+	pub max_results:          Option<u32>,
+	/// Respect .gitignore files (default: true).
+	pub gitignore:            Option<bool>,
+	/// Enable shared filesystem scan cache (default: false).
+	pub cache:                Option<bool>,
+	/// Sort results by mtime (most recent first) before applying limit.
+	#[napi(js_name = "sortByMtime")]
+	pub sort_by_mtime:        Option<bool>,
+	/// Include `node_modules` entries when the pattern does not explicitly
+	/// mention them.
+	#[napi(js_name = "includeNodeModules")]
+	pub include_node_modules: Option<bool>,
+	/// Abort signal for cancelling the operation.
+	pub signal:               Option<Unknown<'env>>,
+	/// Timeout in milliseconds for the operation.
+	#[napi(js_name = "timeoutMs")]
+	pub timeout_ms:           Option<u32>,
+}
+
+/// Result payload returned by a glob operation.
+#[napi(object)]
+pub struct GlobResult {
+	/// Matched filesystem entries.
+	pub matches:       Vec<GlobMatch>,
+	/// Number of returned matches (`matches.len()`), clamped to `u32::MAX`.
+	pub total_matches: u32,
+}
+
+fn build_glob_pattern(glob: &str) -> String {
+	let normalized = if cfg!(windows) && glob.contains('\\') {
+		std::borrow::Cow::Owned(glob.replace('\\', "/"))
+	} else {
+		std::borrow::Cow::Borrowed(glob)
+	};
+	if normalized.contains('/') || normalized.starts_with("**") {
+		normalized.into_owned()
+	} else {
+		format!("**/{normalized}")
+	}
+}
+
+fn compile_glob(glob: &str) -> Result<GlobSet> {
+	let mut builder = GlobSetBuilder::new();
+	let pattern = build_glob_pattern(glob);
+	let glob = Glob::new(&pattern)
+		.map_err(|err| Error::from_reason(format!("Invalid glob pattern: {err}")))?;
+	builder.add(glob);
+	builder
+		.build()
+		.map_err(|err| Error::from_reason(format!("Failed to build glob matcher: {err}")))
+}
+
+/// Internal runtime config for a single glob execution.
+struct GlobConfig {
+	root:                  std::path::PathBuf,
+	pattern:               String,
+	include_hidden:        bool,
+	file_type_filter:      Option<FileType>,
+	max_results:           usize,
+	use_gitignore:         bool,
+	mentions_node_modules: bool,
+	sort_by_mtime:         bool,
+	use_cache:             bool,
+}
+
+/// Filter and collect matching entries from a pre-scanned list.
+fn filter_entries(
+	entries: &[GlobMatch],
+	glob_set: &GlobSet,
+	config: &GlobConfig,
+	on_match: Option<&ThreadsafeFunction<GlobMatch>>,
+	ct: &task::CancelToken,
+) -> Result<Vec<GlobMatch>> {
+	let mut matches = Vec::new();
+	if config.max_results == 0 {
+		return Ok(matches);
+	}
+
+	for entry in entries {
+		ct.heartbeat()?;
+		if fs_cache::should_skip_path(Path::new(&entry.path), config.mentions_node_modules) {
+			// Apply post-scan node_modules policy before glob matching.
+			continue;
+		}
+		if !glob_set.is_match(&entry.path) {
+			continue;
+		}
+		if config
+			.file_type_filter
+			.is_some_and(|filter| filter != entry.file_type)
+		{
+			continue;
+		}
+		if let Some(callback) = on_match {
+			callback.call(Ok(entry.clone()), ThreadsafeFunctionCallMode::NonBlocking);
+		}
+
+		matches.push(entry.clone());
+		// Only early-break when not sorting; mtime sort requires full candidate set.
+		if !config.sort_by_mtime && matches.len() >= config.max_results {
+			break;
+		}
+	}
+	Ok(matches)
+}
+
+/// Executes matching/filtering over scanned entries and optionally streams each
+/// hit.
+fn run_glob(
+	config: GlobConfig,
+	on_match: Option<&ThreadsafeFunction<GlobMatch>>,
+	ct: task::CancelToken,
+) -> Result<GlobResult> {
+	let glob_set = compile_glob(&config.pattern)?;
+	if config.max_results == 0 {
+		return Ok(GlobResult { matches: Vec::new(), total_matches: 0 });
+	}
+
+	let mut matches = if config.use_cache {
+		let scan =
+			fs_cache::get_or_scan(&config.root, config.include_hidden, config.use_gitignore, &ct)?;
+		let mut matches = filter_entries(&scan.entries, &glob_set, &config, on_match, &ct)?;
+		// Empty-result recheck: if we got zero matches from a cached scan that's old
+		// enough, force a rescan and try once more before returning empty.
+		if matches.is_empty() && scan.cache_age_ms >= fs_cache::empty_recheck_ms() {
+			let fresh = fs_cache::force_rescan(
+				&config.root,
+				config.include_hidden,
+				config.use_gitignore,
+				true,
+				&ct,
+			)?;
+			matches = filter_entries(&fresh, &glob_set, &config, on_match, &ct)?;
+		}
+		matches
+	} else {
+		let fresh = fs_cache::force_rescan(
+			&config.root,
+			config.include_hidden,
+			config.use_gitignore,
+			false,
+			&ct,
+		)?;
+		filter_entries(&fresh, &glob_set, &config, on_match, &ct)?
+	};
+
+	if config.sort_by_mtime {
+		// Sorting mode: rank by mtime descending, then apply max-results truncation.
+		matches.sort_by(|a, b| {
+			let a_mtime = a.mtime.unwrap_or(0.0);
+			let b_mtime = b.mtime.unwrap_or(0.0);
+			b_mtime
+				.partial_cmp(&a_mtime)
+				.unwrap_or(std::cmp::Ordering::Equal)
+		});
+		matches.truncate(config.max_results);
+	}
+	let total_matches = matches.len().min(u32::MAX as usize) as u32;
+	Ok(GlobResult { matches, total_matches })
+}
+
+/// Find filesystem entries matching a glob pattern.
+///
+/// Resolves the search root, scans entries, applies glob and optional file-type
+/// filters, and optionally streams each accepted match through `on_match`.
+///
+/// If `sortByMtime` is enabled, all matching entries are collected, sorted by
+/// descending mtime, then truncated to `maxResults`.
+///
+/// # Errors
+/// Returns an error when the search path cannot be resolved, the path is not a
+/// directory, the glob pattern is invalid, or cancellation/timeout is
+/// triggered.
+#[napi(js_name = "glob")]
+pub fn glob(
+	options: GlobOptions<'_>,
+	#[napi(ts_arg_type = "((match: GlobMatch) => void) | undefined | null")] on_match: Option<
+		ThreadsafeFunction<GlobMatch>,
+	>,
+) -> task::Async<GlobResult> {
+	let GlobOptions {
+		pattern,
+		path,
+		file_type,
+		hidden,
+		max_results,
+		gitignore,
+		sort_by_mtime,
+		cache,
+		include_node_modules,
+		timeout_ms,
+		signal,
+	} = options;
+
+	let pattern = pattern.trim();
+	let pattern = if pattern.is_empty() { "*" } else { pattern };
+	let pattern = pattern.to_string();
+
+	let ct = task::CancelToken::new(timeout_ms, signal);
+
+	task::blocking("glob", ct, move |ct| {
+		run_glob(
+			GlobConfig {
+				root: fs_cache::resolve_search_path(&path)?,
+				include_hidden: hidden.unwrap_or(false),
+				file_type_filter: file_type,
+				max_results: max_results.map_or(usize::MAX, |value| value as usize),
+				use_gitignore: gitignore.unwrap_or(true),
+				mentions_node_modules: include_node_modules
+					.unwrap_or_else(|| pattern.contains("node_modules")),
+				sort_by_mtime: sort_by_mtime.unwrap_or(false),
+				use_cache: cache.unwrap_or(false),
+				pattern,
+			},
+			on_match.as_ref(),
+			ct,
+		)
+	})
+}

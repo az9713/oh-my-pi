@@ -1,0 +1,700 @@
+import { $env } from "@oh-my-pi/pi-utils";
+import OpenAI from "openai";
+import type {
+	Tool as OpenAITool,
+	ResponseCreateParamsStreaming,
+	ResponseFunctionToolCall,
+	ResponseInput,
+	ResponseInputContent,
+	ResponseInputImage,
+	ResponseInputText,
+	ResponseOutputMessage,
+	ResponseReasoningItem,
+} from "openai/resources/responses/responses";
+import { calculateCost } from "../models";
+import { getEnvApiKey } from "../stream";
+import type {
+	Api,
+	AssistantMessage,
+	CacheRetention,
+	Context,
+	Model,
+	StopReason,
+	StreamFunction,
+	StreamOptions,
+	TextContent,
+	ThinkingContent,
+	Tool,
+	ToolCall,
+	ToolChoice,
+} from "../types";
+import { AssistantMessageEventStream } from "../utils/event-stream";
+import { parseStreamingJson } from "../utils/json-parse";
+import { formatErrorMessageWithRetryAfter } from "../utils/retry-after";
+import { sanitizeSurrogates } from "../utils/sanitize-unicode";
+import { mapToOpenAIResponsesToolChoice } from "../utils/tool-choice";
+import { transformMessages } from "./transform-messages";
+
+/**
+ * Resolve cache retention preference.
+ * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
+ */
+function resolveCacheRetention(cacheRetention?: CacheRetention): CacheRetention {
+	if (cacheRetention) {
+		return cacheRetention;
+	}
+	if ($env.PI_CACHE_RETENTION === "long") {
+		return "long";
+	}
+	return "short";
+}
+
+/**
+ * Get prompt cache retention based on cacheRetention and base URL.
+ * Only applies to direct OpenAI API calls (api.openai.com).
+ */
+function getPromptCacheRetention(baseUrl: string, cacheRetention: CacheRetention): "24h" | undefined {
+	if (cacheRetention !== "long") {
+		return undefined;
+	}
+	if (baseUrl.includes("api.openai.com")) {
+		return "24h";
+	}
+	return undefined;
+}
+
+// OpenAI Responses-specific options
+export interface OpenAIResponsesOptions extends StreamOptions {
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoningSummary?: "auto" | "detailed" | "concise" | null;
+	serviceTier?: ResponseCreateParamsStreaming["service_tier"];
+	toolChoice?: ToolChoice;
+	/**
+	 * Enforce strict tool call/result pairing when building Responses API inputs.
+	 * Azure OpenAI Responses API requires tool results to have a matching tool call.
+	 */
+	strictResponsesPairing?: boolean;
+}
+
+/**
+ * Generate function for OpenAI Responses API
+ */
+export const streamOpenAIResponses: StreamFunction<"openai-responses"> = (
+	model: Model<"openai-responses">,
+	context: Context,
+	options?: OpenAIResponsesOptions,
+): AssistantMessageEventStream => {
+	const stream = new AssistantMessageEventStream();
+
+	// Start async processing
+	(async () => {
+		const startTime = Date.now();
+		let firstTokenTime: number | undefined;
+
+		const output: AssistantMessage = {
+			role: "assistant",
+			content: [],
+			api: "openai-responses" as Api,
+			provider: model.provider,
+			model: model.id,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		};
+
+		try {
+			// Create OpenAI client
+			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+			const client = createClient(model, context, apiKey, options?.headers);
+			const params = buildParams(model, context, options);
+			options?.onPayload?.(params);
+			const openaiStream = await client.responses.create(
+				params,
+				options?.signal ? { signal: options.signal } : undefined,
+			);
+			stream.push({ type: "start", partial: output });
+
+			let currentItem: ResponseReasoningItem | ResponseOutputMessage | ResponseFunctionToolCall | null = null;
+			let currentBlock: ThinkingContent | TextContent | (ToolCall & { partialJson: string }) | null = null;
+			const blocks = output.content;
+			const blockIndex = () => blocks.length - 1;
+
+			for await (const event of openaiStream) {
+				// Handle output item start
+				if (event.type === "response.output_item.added") {
+					if (!firstTokenTime) firstTokenTime = Date.now();
+					const item = event.item;
+					if (item.type === "reasoning") {
+						currentItem = item;
+						currentBlock = { type: "thinking", thinking: "" };
+						output.content.push(currentBlock);
+						stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
+					} else if (item.type === "message") {
+						currentItem = item;
+						currentBlock = { type: "text", text: "" };
+						output.content.push(currentBlock);
+						stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
+					} else if (item.type === "function_call") {
+						currentItem = item;
+						currentBlock = {
+							type: "toolCall",
+							id: `${item.call_id}|${item.id}`,
+							name: item.name,
+							arguments: {},
+							partialJson: item.arguments || "",
+						};
+						output.content.push(currentBlock);
+						stream.push({ type: "toolcall_start", contentIndex: blockIndex(), partial: output });
+					}
+				}
+				// Handle reasoning summary deltas
+				else if (event.type === "response.reasoning_summary_part.added") {
+					if (currentItem && currentItem.type === "reasoning") {
+						currentItem.summary = currentItem.summary || [];
+						currentItem.summary.push(event.part);
+					}
+				} else if (event.type === "response.reasoning_summary_text.delta") {
+					if (
+						currentItem &&
+						currentItem.type === "reasoning" &&
+						currentBlock &&
+						currentBlock.type === "thinking"
+					) {
+						currentItem.summary = currentItem.summary || [];
+						const lastPart = currentItem.summary[currentItem.summary.length - 1];
+						if (lastPart) {
+							currentBlock.thinking += event.delta;
+							lastPart.text += event.delta;
+							stream.push({
+								type: "thinking_delta",
+								contentIndex: blockIndex(),
+								delta: event.delta,
+								partial: output,
+							});
+						}
+					}
+				}
+				// Add a new line between summary parts (hack...)
+				else if (event.type === "response.reasoning_summary_part.done") {
+					if (
+						currentItem &&
+						currentItem.type === "reasoning" &&
+						currentBlock &&
+						currentBlock.type === "thinking"
+					) {
+						currentItem.summary = currentItem.summary || [];
+						const lastPart = currentItem.summary[currentItem.summary.length - 1];
+						if (lastPart) {
+							currentBlock.thinking += "\n\n";
+							lastPart.text += "\n\n";
+							stream.push({
+								type: "thinking_delta",
+								contentIndex: blockIndex(),
+								delta: "\n\n",
+								partial: output,
+							});
+						}
+					}
+				}
+				// Handle text output deltas
+				else if (event.type === "response.content_part.added") {
+					if (currentItem && currentItem.type === "message") {
+						currentItem.content = currentItem.content || [];
+						// Filter out ReasoningText, only accept output_text and refusal
+						if (event.part.type === "output_text" || event.part.type === "refusal") {
+							currentItem.content.push(event.part);
+						}
+					}
+				} else if (event.type === "response.output_text.delta") {
+					if (currentItem && currentItem.type === "message" && currentBlock && currentBlock.type === "text") {
+						if (!currentItem.content || currentItem.content.length === 0) {
+							continue;
+						}
+						const lastPart = currentItem.content[currentItem.content.length - 1];
+						if (lastPart && lastPart.type === "output_text") {
+							currentBlock.text += event.delta;
+							lastPart.text += event.delta;
+							stream.push({
+								type: "text_delta",
+								contentIndex: blockIndex(),
+								delta: event.delta,
+								partial: output,
+							});
+						}
+					}
+				} else if (event.type === "response.refusal.delta") {
+					if (currentItem && currentItem.type === "message" && currentBlock && currentBlock.type === "text") {
+						if (!currentItem.content || currentItem.content.length === 0) {
+							continue;
+						}
+						const lastPart = currentItem.content[currentItem.content.length - 1];
+						if (lastPart && lastPart.type === "refusal") {
+							currentBlock.text += event.delta;
+							lastPart.refusal += event.delta;
+							stream.push({
+								type: "text_delta",
+								contentIndex: blockIndex(),
+								delta: event.delta,
+								partial: output,
+							});
+						}
+					}
+				}
+				// Handle function call argument deltas
+				else if (event.type === "response.function_call_arguments.delta") {
+					if (
+						currentItem &&
+						currentItem.type === "function_call" &&
+						currentBlock &&
+						currentBlock.type === "toolCall"
+					) {
+						currentBlock.partialJson += event.delta;
+						currentBlock.arguments = parseStreamingJson(currentBlock.partialJson);
+						stream.push({
+							type: "toolcall_delta",
+							contentIndex: blockIndex(),
+							delta: event.delta,
+							partial: output,
+						});
+					}
+				}
+				// Handle function call arguments done (some providers send this instead of deltas)
+				else if (event.type === "response.function_call_arguments.done") {
+					if (currentItem?.type === "function_call" && currentBlock?.type === "toolCall") {
+						currentBlock.partialJson = event.arguments;
+						currentBlock.arguments = parseStreamingJson(currentBlock.partialJson);
+					}
+				}
+				// Handle output item completion
+				else if (event.type === "response.output_item.done") {
+					const item = event.item;
+
+					if (item.type === "reasoning" && currentBlock && currentBlock.type === "thinking") {
+						currentBlock.thinking = item.summary?.map(s => s.text).join("\n\n") || "";
+						currentBlock.thinkingSignature = JSON.stringify(item);
+						stream.push({
+							type: "thinking_end",
+							contentIndex: blockIndex(),
+							content: currentBlock.thinking,
+							partial: output,
+						});
+						currentBlock = null;
+					} else if (item.type === "message" && currentBlock && currentBlock.type === "text") {
+						currentBlock.text = item.content.map(c => (c.type === "output_text" ? c.text : c.refusal)).join("");
+						currentBlock.textSignature = item.id;
+						stream.push({
+							type: "text_end",
+							contentIndex: blockIndex(),
+							content: currentBlock.text,
+							partial: output,
+						});
+						currentBlock = null;
+					} else if (item.type === "function_call") {
+						const args =
+							currentBlock?.type === "toolCall" && currentBlock.partialJson
+								? JSON.parse(currentBlock.partialJson)
+								: JSON.parse(item.arguments);
+						const toolCall: ToolCall = {
+							type: "toolCall",
+							id: `${item.call_id}|${item.id}`,
+							name: item.name,
+							arguments: args,
+						};
+						currentBlock = null;
+						stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
+					}
+				}
+				// Handle completion
+				else if (event.type === "response.completed") {
+					const response = event.response;
+					if (response?.usage) {
+						const cachedTokens = response.usage.input_tokens_details?.cached_tokens || 0;
+						output.usage = {
+							// OpenAI includes cached tokens in input_tokens, so subtract to get non-cached input
+							input: (response.usage.input_tokens || 0) - cachedTokens,
+							output: response.usage.output_tokens || 0,
+							cacheRead: cachedTokens,
+							cacheWrite: 0,
+							totalTokens: response.usage.total_tokens || 0,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						};
+					}
+					calculateCost(model, output.usage);
+					// Map status to stop reason
+					output.stopReason = mapStopReason(response?.status);
+					if (output.content.some(b => b.type === "toolCall") && output.stopReason === "stop") {
+						output.stopReason = "toolUse";
+					}
+				}
+				// Handle errors
+				else if (event.type === "error") {
+					throw new Error(`Error Code ${event.code}: ${event.message}` || "Unknown error");
+				} else if (event.type === "response.failed") {
+					throw new Error("Unknown error");
+				}
+			}
+
+			if (options?.signal?.aborted) {
+				throw new Error("Request was aborted");
+			}
+
+			if (output.stopReason === "aborted" || output.stopReason === "error") {
+				throw new Error("An unknown error occurred");
+			}
+
+			output.duration = Date.now() - startTime;
+			if (firstTokenTime) output.ttft = firstTokenTime - startTime;
+			stream.push({ type: "done", reason: output.stopReason, message: output });
+			stream.end();
+		} catch (error) {
+			for (const block of output.content) delete (block as any).index;
+			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
+			output.errorMessage = formatErrorMessageWithRetryAfter(error);
+			output.duration = Date.now() - startTime;
+			if (firstTokenTime) output.ttft = firstTokenTime - startTime;
+			stream.push({ type: "error", reason: output.stopReason, error: output });
+			stream.end();
+		}
+	})();
+
+	return stream;
+};
+
+function createClient(
+	model: Model<"openai-responses">,
+	context: Context,
+	apiKey?: string,
+	extraHeaders?: Record<string, string>,
+) {
+	if (!apiKey) {
+		if (!$env.OPENAI_API_KEY) {
+			throw new Error(
+				"OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it as an argument.",
+			);
+		}
+		apiKey = $env.OPENAI_API_KEY;
+	}
+
+	const headers = { ...(model.headers ?? {}), ...(extraHeaders ?? {}) };
+	if (model.provider === "github-copilot") {
+		// Copilot expects X-Initiator to indicate whether the request is user-initiated
+		// or agent-initiated (e.g. follow-up after assistant/tool messages). If there is
+		// no prior message, default to user-initiated.
+		const messages = context.messages || [];
+		const lastMessage = messages[messages.length - 1];
+		// Only set X-Initiator if not already specified in model headers (allows subagent override)
+		if (!("X-Initiator" in headers)) {
+			const isAgentCall = lastMessage ? lastMessage.role !== "user" : false;
+			headers["X-Initiator"] = isAgentCall ? "agent" : "user";
+		}
+		headers["Openai-Intent"] = "conversation-edits";
+
+		// Copilot requires this header when sending images
+		const hasImages = messages.some(msg => {
+			if (msg.role === "user" && Array.isArray(msg.content)) {
+				return msg.content.some(c => c.type === "image");
+			}
+			if (msg.role === "toolResult" && Array.isArray(msg.content)) {
+				return msg.content.some(c => c.type === "image");
+			}
+			return false;
+		});
+		if (hasImages) {
+			headers["Copilot-Vision-Request"] = "true";
+		}
+	}
+
+	return new OpenAI({
+		apiKey,
+		baseURL: model.baseUrl,
+		dangerouslyAllowBrowser: true,
+		defaultHeaders: headers,
+	});
+}
+
+function buildParams(model: Model<"openai-responses">, context: Context, options?: OpenAIResponsesOptions) {
+	const strictResponsesPairing = options?.strictResponsesPairing ?? isAzureOpenAIBaseUrl(model.baseUrl ?? "");
+	const messages = convertMessages(model, context, strictResponsesPairing);
+
+	const cacheRetention = resolveCacheRetention(options?.cacheRetention);
+	const promptCacheKey = cacheRetention === "none" ? undefined : options?.sessionId;
+	const params: ResponseCreateParamsStreaming = {
+		model: model.id,
+		input: messages,
+		stream: true,
+		prompt_cache_key: promptCacheKey,
+		prompt_cache_retention: promptCacheKey ? getPromptCacheRetention(model.baseUrl, cacheRetention) : undefined,
+		store: false,
+	};
+
+	if (options?.maxTokens) {
+		params.max_output_tokens = options?.maxTokens;
+	}
+
+	if (options?.temperature !== undefined) {
+		params.temperature = options?.temperature;
+	}
+
+	if (options?.serviceTier !== undefined) {
+		params.service_tier = options.serviceTier;
+	}
+
+	if (context.tools) {
+		params.tools = convertTools(context.tools);
+		if (options?.toolChoice) {
+			params.tool_choice = mapToOpenAIResponsesToolChoice(options.toolChoice);
+		}
+	}
+
+	if (model.reasoning) {
+		// Always request encrypted reasoning content so reasoning items can be
+		// replayed in multi-turn conversations when store is false (items aren't
+		// persisted server-side, so we must include the full content).
+		// See: https://github.com/can1357/oh-my-pi/issues/41
+		params.include = ["reasoning.encrypted_content"];
+
+		if (options?.reasoningEffort || options?.reasoningSummary) {
+			params.reasoning = {
+				effort: options?.reasoningEffort || "medium",
+				summary: options?.reasoningSummary || "auto",
+			};
+		} else {
+			if (model.name.startsWith("gpt-5")) {
+				// Jesus Christ, see https://community.openai.com/t/need-reasoning-false-option-for-gpt-5/1351588/7
+				messages.push({
+					role: "developer",
+					content: [
+						{
+							type: "input_text",
+							text: "# Juice: 0 !important",
+						},
+					],
+				});
+			}
+		}
+	}
+
+	return params;
+}
+
+function normalizeResponsesToolCallId(id: string): { callId: string; itemId: string } {
+	const [callId, itemId] = id.split("|");
+	if (callId && itemId) {
+		return { callId, itemId };
+	}
+	const hash = Bun.hash.xxHash64(id).toString(36);
+	return { callId: `call_${hash}`, itemId: `item_${hash}` };
+}
+
+function isAzureOpenAIBaseUrl(baseUrl: string): boolean {
+	return baseUrl.includes(".openai.azure.com") || baseUrl.includes("azure.com/openai");
+}
+
+function convertMessages(
+	model: Model<"openai-responses">,
+	context: Context,
+	strictResponsesPairing: boolean,
+): ResponseInput {
+	const messages: ResponseInput = [];
+	const knownCallIds = new Set<string>();
+
+	const transformedMessages = transformMessages(context.messages, model);
+
+	if (context.systemPrompt) {
+		const role = model.reasoning ? "developer" : "system";
+		messages.push({
+			role,
+			content: sanitizeSurrogates(context.systemPrompt),
+		});
+	}
+
+	let msgIndex = 0;
+	for (const msg of transformedMessages) {
+		if (msg.role === "user") {
+			if (typeof msg.content === "string") {
+				// Skip empty user messages
+				if (!msg.content || msg.content.trim() === "") continue;
+				messages.push({
+					role: "user",
+					content: [{ type: "input_text", text: sanitizeSurrogates(msg.content) }],
+				});
+			} else {
+				const content: ResponseInputContent[] = msg.content.map((item): ResponseInputContent => {
+					if (item.type === "text") {
+						return {
+							type: "input_text",
+							text: sanitizeSurrogates(item.text),
+						} satisfies ResponseInputText;
+					} else {
+						return {
+							type: "input_image",
+							detail: "auto",
+							image_url: `data:${item.mimeType};base64,${item.data}`,
+						} satisfies ResponseInputImage;
+					}
+				});
+				// Filter out images if model doesn't support them, and empty text blocks
+				let filteredContent = !model.input.includes("image")
+					? content.filter(c => c.type !== "input_image")
+					: content;
+				filteredContent = filteredContent.filter(c => {
+					if (c.type === "input_text") {
+						return c.text.trim().length > 0;
+					}
+					return true; // Keep non-text content (images)
+				});
+				if (filteredContent.length === 0) continue;
+				messages.push({
+					role: "user",
+					content: filteredContent,
+				});
+			}
+		} else if (msg.role === "assistant") {
+			const output: ResponseInput = [];
+			const assistantMsg = msg as AssistantMessage;
+
+			// Check if this message is from a different model (same provider, different model ID).
+			// For such messages, tool call IDs with fc_ prefix need to be stripped to avoid
+			// OpenAI's reasoning/function_call pairing validation errors.
+			const isDifferentModel =
+				assistantMsg.model !== model.id &&
+				assistantMsg.provider === model.provider &&
+				assistantMsg.api === model.api;
+
+			for (const block of msg.content) {
+				// Do not submit thinking blocks if the completion had an error (i.e. abort)
+				if (block.type === "thinking" && msg.stopReason !== "error") {
+					if (block.thinkingSignature) {
+						const reasoningItem = JSON.parse(block.thinkingSignature);
+						output.push(reasoningItem);
+					}
+				} else if (block.type === "text") {
+					const textBlock = block as TextContent;
+					// OpenAI requires id to be max 64 characters
+					let msgId = textBlock.textSignature;
+					if (!msgId) {
+						msgId = `msg_${msgIndex}`;
+					} else if (msgId.length > 64) {
+						msgId = `msg_${Bun.hash.xxHash64(msgId).toString(36)}`;
+					}
+					output.push({
+						type: "message",
+						role: "assistant",
+						content: [{ type: "output_text", text: sanitizeSurrogates(textBlock.text), annotations: [] }],
+						status: "completed",
+						id: msgId,
+					} satisfies ResponseOutputMessage);
+					// Do not submit toolcall blocks if the completion had an error (i.e. abort)
+				} else if (block.type === "toolCall" && msg.stopReason !== "error") {
+					const toolCall = block as ToolCall;
+					const normalized = normalizeResponsesToolCallId(toolCall.id);
+					const callId = normalized.callId;
+					// For different-model messages, set id to undefined to avoid pairing validation.
+					// OpenAI tracks which fc_xxx IDs were paired with rs_xxx reasoning items.
+					// By omitting the id, we avoid triggering that validation (like cross-provider does).
+					let itemId: string | undefined = normalized.itemId;
+					if (isDifferentModel && itemId?.startsWith("fc_")) {
+						itemId = undefined;
+					}
+					knownCallIds.add(normalized.callId);
+					output.push({
+						type: "function_call",
+						id: itemId,
+						call_id: callId,
+						name: toolCall.name,
+						arguments: JSON.stringify(toolCall.arguments),
+					});
+				}
+			}
+			if (output.length === 0) continue;
+			messages.push(...output);
+		} else if (msg.role === "toolResult") {
+			// Extract text and image content
+			const textResult = msg.content
+				.filter(c => c.type === "text")
+				.map(c => (c as any).text)
+				.join("\n");
+			const hasImages = msg.content.some(c => c.type === "image");
+			const normalized = normalizeResponsesToolCallId(msg.toolCallId);
+			if (strictResponsesPairing && !knownCallIds.has(normalized.callId)) {
+				continue;
+			}
+
+			// Always send function_call_output with text (or placeholder if only images)
+			const hasText = textResult.length > 0;
+			messages.push({
+				type: "function_call_output",
+				call_id: normalized.callId,
+				output: sanitizeSurrogates(hasText ? textResult : "(see attached image)"),
+			});
+
+			// If there are images and model supports them, send a follow-up user message with images
+			if (hasImages && model.input.includes("image")) {
+				const contentParts: ResponseInputContent[] = [];
+
+				// Add text prefix
+				contentParts.push({
+					type: "input_text",
+					text: "Attached image(s) from tool result:",
+				} satisfies ResponseInputText);
+
+				// Add images
+				for (const block of msg.content) {
+					if (block.type === "image") {
+						contentParts.push({
+							type: "input_image",
+							detail: "auto",
+							image_url: `data:${(block as any).mimeType};base64,${(block as any).data}`,
+						} satisfies ResponseInputImage);
+					}
+				}
+
+				messages.push({
+					role: "user",
+					content: contentParts,
+				});
+			}
+		}
+		msgIndex++;
+	}
+
+	return messages;
+}
+
+function convertTools(tools: Tool[]): OpenAITool[] {
+	return tools.map(tool => ({
+		type: "function",
+		name: tool.name,
+		description: tool.description,
+		parameters: tool.parameters as any, // TypeBox already generates JSON Schema
+		strict: false,
+	}));
+}
+
+function mapStopReason(status: OpenAI.Responses.ResponseStatus | undefined): StopReason {
+	if (!status) return "stop";
+	switch (status) {
+		case "completed":
+			return "stop";
+		case "incomplete":
+			return "length";
+		case "failed":
+		case "cancelled":
+			return "error";
+		// These two are wonky ...
+		case "in_progress":
+		case "queued":
+			return "stop";
+		default: {
+			const _exhaustive: never = status;
+			throw new Error(`Unhandled stop reason: ${_exhaustive}`);
+		}
+	}
+}

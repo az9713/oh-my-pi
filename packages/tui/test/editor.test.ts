@@ -1,0 +1,1157 @@
+import { describe, expect, it } from "bun:test";
+import { stripVTControlCharacters } from "node:util";
+import { Editor } from "@oh-my-pi/pi-tui/components/editor";
+import { visibleWidth } from "@oh-my-pi/pi-tui/utils";
+import { defaultEditorTheme } from "./test-themes";
+
+describe("Editor component", () => {
+	describe("Prompt history navigation", () => {
+		it("does nothing on Up arrow when history is empty", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("\x1b[A"); // Up arrow
+
+			expect(editor.getText()).toBe("");
+		});
+
+		it("shows most recent history entry on Up arrow when editor is empty", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("first prompt");
+			editor.addToHistory("second prompt");
+
+			editor.handleInput("\x1b[A"); // Up arrow
+
+			expect(editor.getText()).toBe("second prompt");
+		});
+
+		it("cycles through history entries on repeated Up arrow", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("first");
+			editor.addToHistory("second");
+			editor.addToHistory("third");
+
+			editor.handleInput("\x1b[A"); // Up - shows "third"
+			expect(editor.getText()).toBe("third");
+
+			editor.handleInput("\x1b[A"); // Up - shows "second"
+			expect(editor.getText()).toBe("second");
+
+			editor.handleInput("\x1b[A"); // Up - shows "first"
+			expect(editor.getText()).toBe("first");
+
+			editor.handleInput("\x1b[A"); // Up - stays at "first" (oldest)
+			expect(editor.getText()).toBe("first");
+		});
+
+		it("returns to empty editor on Down arrow after browsing history", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("prompt");
+
+			editor.handleInput("\x1b[A"); // Up - shows "prompt"
+			expect(editor.getText()).toBe("prompt");
+
+			editor.handleInput("\x1b[B"); // Down - clears editor
+			expect(editor.getText()).toBe("");
+		});
+
+		it("navigates forward through history with Down arrow", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("first");
+			editor.addToHistory("second");
+			editor.addToHistory("third");
+
+			// Go to oldest
+			editor.handleInput("\x1b[A"); // third
+			editor.handleInput("\x1b[A"); // second
+			editor.handleInput("\x1b[A"); // first
+
+			// Navigate back
+			editor.handleInput("\x1b[B"); // second
+			expect(editor.getText()).toBe("second");
+
+			editor.handleInput("\x1b[B"); // third
+			expect(editor.getText()).toBe("third");
+
+			editor.handleInput("\x1b[B"); // empty
+			expect(editor.getText()).toBe("");
+		});
+
+		it("exits history mode when typing a character", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("old prompt");
+
+			editor.handleInput("\x1b[A"); // Up - shows "old prompt"
+			editor.handleInput("x"); // Type a character - exits history mode
+
+			expect(editor.getText()).toBe("old promptx");
+		});
+
+		it("exits history mode on setText", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("first");
+			editor.addToHistory("second");
+
+			editor.handleInput("\x1b[A"); // Up - shows "second"
+			editor.setText(""); // External clear
+
+			// Up should start fresh from most recent
+			editor.handleInput("\x1b[A");
+			expect(editor.getText()).toBe("second");
+		});
+
+		it("does not add empty strings to history", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("");
+			editor.addToHistory("   ");
+			editor.addToHistory("valid");
+
+			editor.handleInput("\x1b[A");
+			expect(editor.getText()).toBe("valid");
+
+			// Should not have more entries
+			editor.handleInput("\x1b[A");
+			expect(editor.getText()).toBe("valid");
+		});
+
+		it("does not add consecutive duplicates to history", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("same");
+			editor.addToHistory("same");
+			editor.addToHistory("same");
+
+			editor.handleInput("\x1b[A"); // "same"
+			expect(editor.getText()).toBe("same");
+
+			editor.handleInput("\x1b[A"); // stays at "same" (only one entry)
+			expect(editor.getText()).toBe("same");
+		});
+
+		it("allows non-consecutive duplicates in history", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("first");
+			editor.addToHistory("second");
+			editor.addToHistory("first"); // Not consecutive, should be added
+
+			editor.handleInput("\x1b[A"); // "first"
+			expect(editor.getText()).toBe("first");
+
+			editor.handleInput("\x1b[A"); // "second"
+			expect(editor.getText()).toBe("second");
+
+			editor.handleInput("\x1b[A"); // "first" (older one)
+			expect(editor.getText()).toBe("first");
+		});
+
+		it("uses cursor movement instead of history when editor has content", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("history item");
+			editor.setText("line1\nline2");
+
+			// Cursor is at end of line2, Up should move to line1
+			editor.handleInput("\x1b[A"); // Up - cursor movement
+
+			// Insert character to verify cursor position
+			editor.handleInput("X");
+
+			// X should be inserted in line1, not replace with history
+			expect(editor.getText()).toBe("line1X\nline2");
+		});
+
+		it("limits history to 100 entries", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Add 105 entries
+			for (let i = 0; i < 105; i++) {
+				editor.addToHistory(`prompt ${i}`);
+			}
+
+			// Navigate to oldest
+			for (let i = 0; i < 100; i++) {
+				editor.handleInput("\x1b[A");
+			}
+
+			// Should be at entry 5 (oldest kept), not entry 0
+			expect(editor.getText()).toBe("prompt 5");
+
+			// One more Up should not change anything
+			editor.handleInput("\x1b[A");
+			expect(editor.getText()).toBe("prompt 5");
+		});
+
+		it("allows cursor movement within multi-line history entry with Down", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("line1\nline2\nline3");
+
+			// Browse to the multi-line entry
+			editor.handleInput("\x1b[A"); // Up - shows entry, cursor at end of line3
+			expect(editor.getText()).toBe("line1\nline2\nline3");
+
+			// Down should exit history since cursor is on last line
+			editor.handleInput("\x1b[B"); // Down
+			expect(editor.getText()).toBe(""); // Exited to empty
+		});
+
+		it("allows cursor movement within multi-line history entry with Up", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("older entry");
+			editor.addToHistory("line1\nline2\nline3");
+
+			// Browse to the multi-line entry
+			editor.handleInput("\x1b[A"); // Up - shows multi-line, cursor at end of line3
+
+			// Up should move cursor within the entry (not on first line yet)
+			editor.handleInput("\x1b[A"); // Up - cursor moves to line2
+			expect(editor.getText()).toBe("line1\nline2\nline3"); // Still same entry
+
+			editor.handleInput("\x1b[A"); // Up - cursor moves to line1 (now on first visual line)
+			expect(editor.getText()).toBe("line1\nline2\nline3"); // Still same entry
+
+			// Now Up should navigate to older history entry
+			editor.handleInput("\x1b[A"); // Up - navigate to older
+			expect(editor.getText()).toBe("older entry");
+		});
+
+		it("navigates from multi-line entry back to newer via Down after cursor movement", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.addToHistory("line1\nline2\nline3");
+
+			// Browse to entry and move cursor up
+			editor.handleInput("\x1b[A"); // Up - shows entry, cursor at end
+			editor.handleInput("\x1b[A"); // Up - cursor to line2
+			editor.handleInput("\x1b[A"); // Up - cursor to line1
+
+			// Now Down should move cursor down within the entry
+			editor.handleInput("\x1b[B"); // Down - cursor to line2
+			expect(editor.getText()).toBe("line1\nline2\nline3");
+
+			editor.handleInput("\x1b[B"); // Down - cursor to line3
+			expect(editor.getText()).toBe("line1\nline2\nline3");
+
+			// Now on last line, Down should exit history
+			editor.handleInput("\x1b[B"); // Down - exit to empty
+			expect(editor.getText()).toBe("");
+		});
+	});
+
+	describe("public state accessors", () => {
+		it("returns cursor position", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
+
+			editor.handleInput("a");
+			editor.handleInput("b");
+			editor.handleInput("c");
+
+			expect(editor.getCursor()).toEqual({ line: 0, col: 3 });
+
+			editor.handleInput("\x1b[D"); // Left
+			expect(editor.getCursor()).toEqual({ line: 0, col: 2 });
+		});
+
+		it("returns lines as a defensive copy", () => {
+			const editor = new Editor(defaultEditorTheme);
+			editor.setText("a\nb");
+
+			const lines = editor.getLines();
+			expect(lines).toEqual(["a", "b"]);
+
+			lines[0] = "mutated";
+			expect(editor.getLines()).toEqual(["a", "b"]);
+		});
+	});
+
+	describe("Unicode text editing behavior", () => {
+		it("inserts mixed ASCII, umlauts, and emojis as literal text", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("H");
+			editor.handleInput("e");
+			editor.handleInput("l");
+			editor.handleInput("l");
+			editor.handleInput("o");
+			editor.handleInput(" ");
+			editor.handleInput("ä");
+			editor.handleInput("ö");
+			editor.handleInput("ü");
+			editor.handleInput(" ");
+			editor.handleInput("😀");
+
+			const text = editor.getText();
+			expect(text).toBe("Hello äöü 😀");
+		});
+
+		it("deletes single-code-unit unicode characters (umlauts) with Backspace", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("ä");
+			editor.handleInput("ö");
+			editor.handleInput("ü");
+
+			// Delete the last character (ü)
+			editor.handleInput("\x7f"); // Backspace
+
+			const text = editor.getText();
+			expect(text).toBe("äö");
+		});
+
+		it("deletes multi-code-unit emojis with single Backspace", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("😀");
+			editor.handleInput("👍");
+
+			// Delete the last emoji (👍) - single backspace deletes whole grapheme cluster
+			editor.handleInput("\x7f"); // Backspace
+
+			const text = editor.getText();
+			expect(text).toBe("😀");
+		});
+
+		it("inserts characters at the correct position after cursor movement over umlauts", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("ä");
+			editor.handleInput("ö");
+			editor.handleInput("ü");
+
+			// Move cursor left twice
+			editor.handleInput("\x1b[D"); // Left arrow
+			editor.handleInput("\x1b[D"); // Left arrow
+
+			// Insert 'x' in the middle
+			editor.handleInput("x");
+
+			const text = editor.getText();
+			expect(text).toBe("äxöü");
+		});
+
+		it("moves cursor across multi-code-unit emojis with single arrow key", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("😀");
+			editor.handleInput("👍");
+			editor.handleInput("🎉");
+
+			// Move cursor left over last emoji (🎉) - single arrow moves over whole grapheme
+			editor.handleInput("\x1b[D"); // Left arrow
+
+			// Move cursor left over second emoji (👍)
+			editor.handleInput("\x1b[D");
+
+			// Insert 'x' between first and second emoji
+			editor.handleInput("x");
+
+			const text = editor.getText();
+			expect(text).toBe("😀x👍🎉");
+		});
+
+		it("preserves umlauts across line breaks", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("ä");
+			editor.handleInput("ö");
+			editor.handleInput("ü");
+			editor.handleInput("\n"); // new line
+			editor.handleInput("Ä");
+			editor.handleInput("Ö");
+			editor.handleInput("Ü");
+
+			const text = editor.getText();
+			expect(text).toBe("äöü\nÄÖÜ");
+		});
+
+		it("replaces the entire document with unicode text via setText (paste simulation)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Simulate bracketed paste / programmatic replacement
+			editor.setText("Hällö Wörld! 😀 äöüÄÖÜß");
+
+			const text = editor.getText();
+			expect(text).toBe("Hällö Wörld! 😀 äöüÄÖÜß");
+		});
+
+		it("moves cursor to document start on Ctrl+A and inserts at the beginning", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.handleInput("a");
+			editor.handleInput("b");
+			editor.handleInput("\x01"); // Ctrl+A (move to start)
+			editor.handleInput("x"); // Insert at start
+
+			const text = editor.getText();
+			expect(text).toBe("xab");
+		});
+
+		it("deletes words correctly with Ctrl+W and Alt+Backspace", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Basic word deletion
+			editor.setText("foo bar baz");
+			editor.handleInput("\x17"); // Ctrl+W
+			expect(editor.getText()).toBe("foo bar ");
+
+			// Trailing whitespace
+			editor.setText("foo bar   ");
+			editor.handleInput("\x17");
+			expect(editor.getText()).toBe("foo ");
+
+			// Punctuation run
+			editor.setText("foo bar...");
+			editor.handleInput("\x17");
+			expect(editor.getText()).toBe("foo bar");
+
+			// Delete across multiple lines
+			editor.setText("line one\nline two");
+			editor.handleInput("\x17");
+			expect(editor.getText()).toBe("line one\nline ");
+
+			// Delete empty line (merge)
+			editor.setText("line one\n");
+			editor.handleInput("\x17");
+			expect(editor.getText()).toBe("line one");
+
+			// Grapheme safety (emoji as a word)
+			editor.setText("foo 😀😀 bar");
+			editor.handleInput("\x17");
+			expect(editor.getText()).toBe("foo 😀😀 ");
+			editor.handleInput("\x17");
+			expect(editor.getText()).toBe("foo ");
+
+			// Alt+Backspace
+			editor.setText("foo bar");
+			editor.handleInput("\x1b\x7f"); // Alt+Backspace (legacy)
+			expect(editor.getText()).toBe("foo ");
+		});
+
+		it("navigates words correctly with Ctrl+Left/Right", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("foo bar... baz");
+			// Cursor at end
+
+			// Move left over baz
+			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
+			expect(editor.getCursor()).toEqual({ line: 0, col: 11 }); // after '...'
+
+			// Move left over punctuation
+			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
+			expect(editor.getCursor()).toEqual({ line: 0, col: 7 }); // after 'bar'
+
+			// Move left over bar
+			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
+			expect(editor.getCursor()).toEqual({ line: 0, col: 4 }); // after 'foo '
+
+			// Move right over bar
+			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
+			expect(editor.getCursor()).toEqual({ line: 0, col: 7 }); // at end of 'bar'
+
+			// Move right over punctuation run
+			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
+			expect(editor.getCursor()).toEqual({ line: 0, col: 10 }); // after '...'
+
+			// Move right skips space and lands after baz
+			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
+			expect(editor.getCursor()).toEqual({ line: 0, col: 14 }); // end of line
+
+			// Test forward from start with leading whitespace
+			editor.setText("   foo bar");
+			editor.handleInput("\x01"); // Ctrl+A to go to start
+			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
+			expect(editor.getCursor()).toEqual({ line: 0, col: 6 }); // after 'foo'
+		});
+	});
+
+	describe("Grapheme-aware text wrapping", () => {
+		it("wraps lines correctly when text contains wide emojis", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 20;
+
+			// ✅ is 2 columns wide, so "Hello ✅ World" is 14 columns
+			editor.setText("Hello ✅ World");
+			const lines = editor.render(width);
+
+			// All content lines (between borders) should fit within width
+			for (let i = 1; i < lines.length - 1; i++) {
+				const lineWidth = visibleWidth(lines[i]!);
+				expect(lineWidth).toBeLessThanOrEqual(width);
+			}
+		});
+
+		it("wraps long text with emojis at correct positions", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 10;
+
+			// Each ✅ is 2 columns. "✅✅✅✅✅" = 10 columns, fits exactly
+			// "✅✅✅✅✅✅" = 12 columns, needs wrap
+			editor.setText("✅✅✅✅✅✅");
+			const lines = editor.render(width);
+
+			// Should have 2 content lines (plus 2 border lines)
+			// First line: 5 emojis (10 cols), second line: 1 emoji (2 cols) + padding
+			for (let i = 1; i < lines.length - 1; i++) {
+				const lineWidth = visibleWidth(lines[i]!);
+				expect(lineWidth).toBeLessThanOrEqual(width);
+			}
+		});
+
+		it("wraps CJK characters correctly (each is 2 columns wide)", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 16; // 6 chars for borders, 10 for content
+
+			// Each CJK char is 2 columns. "日本語テスト" = 6 chars = 12 columns
+			editor.setText("日本語テスト");
+			const lines = editor.render(width);
+
+			// All content lines (including last which has bottom border) should be correct width
+			for (let i = 1; i < lines.length; i++) {
+				const lineWidth = visibleWidth(lines[i]!);
+				expect(lineWidth).toBeLessThanOrEqual(width);
+			}
+
+			// Verify content split correctly - extract content between borders
+			// Middle lines use "│  " and "  │", last line uses "╰─ " and " ─╯"
+			const contentLines = lines.slice(1).map(l => {
+				const stripped = stripVTControlCharacters(l);
+				// Both border styles use 3 chars on each side
+				return stripped.slice(3, -3).trim();
+			});
+			expect(contentLines.length).toBe(2);
+			expect(contentLines[0]).toBe("日本語テス"); // 5 chars = 10 columns
+			// Last line has cursor (|) which we need to strip
+			expect(contentLines[1]?.replace("|", "")).toBe("ト"); // 1 char = 2 columns (+ cursor + padding)
+		});
+
+		it("handles mixed ASCII and wide characters in wrapping", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 15;
+
+			// "Test ✅ OK 日本" = 4 + 1 + 2 + 1 + 2 + 1 + 4 = 15 columns (fits exactly)
+			editor.setText("Test ✅ OK 日本");
+			const lines = editor.render(width);
+
+			// Should fit in one content line
+			const contentLines = lines.slice(1, -1);
+			expect(contentLines.length).toBe(1);
+
+			const lineWidth = visibleWidth(contentLines[0]!);
+			expect(lineWidth).toBeLessThanOrEqual(width);
+		});
+
+		it("renders cursor correctly on wide characters", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 20;
+
+			editor.setText("A✅B");
+			// Cursor should be at end (after B)
+			const lines = editor.render(width);
+
+			// The cursor (blinking bar) should be visible
+			const contentLine = lines[1]!;
+			expect(contentLine.includes("\x1b[5m")).toBeTruthy();
+
+			// Line should still be correct width
+			expect(visibleWidth(contentLine)).toBeLessThanOrEqual(width);
+		});
+
+		it("shows cursor at end before wrap and wraps on next char", () => {
+			for (const paddingX of [0, 1]) {
+				const editor = new Editor({ ...defaultEditorTheme, editorPaddingX: paddingX });
+				const width = 20;
+				const contentWidth = width - 2 * (paddingX + 1);
+				const layoutWidth = Math.max(1, contentWidth - (paddingX === 0 ? 1 : 0));
+				const cursorToken = `\x1b[5m${defaultEditorTheme.symbols.inputCursor}\x1b[0m`;
+
+				for (let i = 0; i < layoutWidth; i++) {
+					editor.handleInput("a");
+				}
+
+				let lines = editor.render(width);
+				let contentLines = lines.slice(1);
+				expect(contentLines.length).toBe(1);
+				expect(contentLines[0]!.includes(cursorToken)).toBeTruthy();
+
+				editor.handleInput("a");
+				lines = editor.render(width);
+				contentLines = lines.slice(1);
+				expect(contentLines.length).toBe(2);
+			}
+		});
+
+		it("does not exceed terminal width with emoji at wrap boundary", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 11;
+
+			// "0123456789✅" = 10 ASCII + 2-wide emoji = 12 columns
+			// Should wrap before the emoji since it would exceed width
+			editor.setText("0123456789✅");
+			const lines = editor.render(width);
+
+			for (let i = 1; i < lines.length - 1; i++) {
+				const lineWidth = visibleWidth(lines[i]!);
+				expect(lineWidth <= width).toBeTruthy();
+			}
+		});
+	});
+
+	describe("Word wrapping", () => {
+		it("wraps at word boundaries instead of mid-word", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 40;
+
+			editor.setText("Hello world this is a test of word wrapping functionality");
+			const lines = editor.render(width);
+
+			// Check that all lines fit within width
+			for (const line of lines) {
+				const lineWidth = visibleWidth(line);
+				expect(lineWidth).toBe(width);
+			}
+
+			// Extract text content (strip borders and control characters)
+			const allText = lines
+				.map(l => stripVTControlCharacters(l))
+				.join("")
+				.replace(/[+\-|]/g, "")
+				.replace(/\s+/g, " ")
+				.trim();
+
+			// Should contain the full text (with normalized whitespace)
+			expect(allText).toBe("Hello world this is a test of word wrapping functionality");
+		});
+
+		it("does not start lines with leading whitespace after word wrap", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 20;
+
+			editor.setText("Word1 Word2 Word3 Word4 Word5 Word6");
+			const lines = editor.render(width);
+
+			// Get content lines (between borders)
+			const contentLines = lines.slice(1, -1);
+
+			// No line should start with whitespace (except for padding at the end)
+			for (let i = 0; i < contentLines.length; i++) {
+				const line = stripVTControlCharacters(contentLines[i]!);
+				const trimmedStart = line.trimStart();
+				// The line should either be all padding or start with a word character
+				if (trimmedStart.length > 0) {
+					expect(/^\s+\S/.test(line.trimEnd())).toBe(false);
+				}
+			}
+		});
+
+		it("breaks long words (URLs) at character level", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 30;
+
+			editor.setText("Check https://example.com/very/long/path/that/exceeds/width here");
+			const lines = editor.render(width);
+
+			// All lines should fit within width
+			for (let i = 1; i < lines.length - 1; i++) {
+				const lineWidth = visibleWidth(lines[i]!);
+				expect(lineWidth).toBe(width);
+			}
+		});
+
+		it("preserves multiple spaces within words on same line", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 50;
+
+			editor.setText("Word1   Word2    Word3");
+			const lines = editor.render(width);
+
+			const contentLine = stripVTControlCharacters(lines[1]!).trim();
+			// Multiple spaces should be preserved
+			expect(contentLine.includes("Word1   Word2")).toBeTruthy();
+		});
+
+		it("handles empty string", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 40;
+
+			editor.setText("");
+			const lines = editor.render(width);
+
+			// Should have at least 2 lines (borders)
+			expect(lines.length).toBeGreaterThanOrEqual(2);
+
+			// All lines should fit within width
+			for (const line of lines) {
+				const lineWidth = visibleWidth(line);
+				expect(lineWidth).toBe(width);
+			}
+		});
+
+		it("handles single word that fits exactly", () => {
+			const editor = new Editor(defaultEditorTheme);
+			const width = 20;
+
+			editor.setText("1234567890");
+			const lines = editor.render(width);
+
+			// Check all lines fit within width
+			for (const line of lines) {
+				const lineWidth = visibleWidth(line);
+				expect(lineWidth).toBe(width);
+			}
+
+			// Extract and verify content
+			const allText = lines
+				.map(l => stripVTControlCharacters(l))
+				.join("")
+				.replace(/[+\-|]/g, "")
+				.trim();
+			expect(allText).toBe("1234567890");
+		});
+	});
+
+	describe("Sticky column", () => {
+		it("preserves target column when moving up through a shorter line", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Line 0: "2222222222x222" (x at col 10)
+			// Line 1: "" (empty)
+			// Line 2: "1111111111_111111111111" (_ at col 10)
+			editor.setText("2222222222x222\n\n1111111111_111111111111");
+
+			// Position cursor on _ (line 2, col 10)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 23 }); // At end
+			editor.handleInput("\x01"); // Ctrl+A - go to start of line
+			for (let i = 0; i < 10; i++) editor.handleInput("\x1b[C"); // Move right to col 10
+			expect(editor.getCursor()).toEqual({ line: 2, col: 10 });
+
+			// Press Up - should move to empty line (col clamped to 0)
+			editor.handleInput("\x1b[A"); // Up arrow
+			expect(editor.getCursor()).toEqual({ line: 1, col: 0 });
+
+			// Press Up again - should move to line 0 at col 10 (on 'x')
+			editor.handleInput("\x1b[A"); // Up arrow
+			expect(editor.getCursor()).toEqual({ line: 0, col: 10 });
+		});
+
+		it("preserves target column when moving down through a shorter line", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1111111111_111\n\n2222222222x222222222222");
+
+			// Position cursor on _ (line 0, col 10)
+			editor.handleInput("\x1b[A"); // Up to line 1
+			editor.handleInput("\x1b[A"); // Up to line 0
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 10; i++) editor.handleInput("\x1b[C");
+			expect(editor.getCursor()).toEqual({ line: 0, col: 10 });
+
+			// Press Down - should move to empty line (col clamped to 0)
+			editor.handleInput("\x1b[B"); // Down arrow
+			expect(editor.getCursor()).toEqual({ line: 1, col: 0 });
+
+			// Press Down again - should move to line 2 at col 10 (on 'x')
+			editor.handleInput("\x1b[B"); // Down arrow
+			expect(editor.getCursor()).toEqual({ line: 2, col: 10 });
+		});
+
+		it("resets sticky column on horizontal movement (left arrow)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Start at line 2, col 5
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 5; i++) editor.handleInput("\x1b[C");
+			expect(editor.getCursor()).toEqual({ line: 2, col: 5 });
+
+			// Move up through empty line
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 5 (sticky)
+			expect(editor.getCursor()).toEqual({ line: 0, col: 5 });
+
+			// Move left - resets sticky column
+			editor.handleInput("\x1b[D"); // Left
+			expect(editor.getCursor()).toEqual({ line: 0, col: 4 });
+
+			// Move down twice
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 4 (new sticky from col 4)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 4 });
+		});
+
+		it("resets sticky column on horizontal movement (right arrow)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Start at line 0, col 5
+			editor.handleInput("\x1b[A"); // Up to line 1
+			editor.handleInput("\x1b[A"); // Up to line 0
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 5; i++) editor.handleInput("\x1b[C");
+			expect(editor.getCursor()).toEqual({ line: 0, col: 5 });
+
+			// Move down through empty line
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 5 (sticky)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 5 });
+
+			// Move right - resets sticky column
+			editor.handleInput("\x1b[C"); // Right
+			expect(editor.getCursor()).toEqual({ line: 2, col: 6 });
+
+			// Move up twice
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 6 (new sticky from col 6)
+			expect(editor.getCursor()).toEqual({ line: 0, col: 6 });
+		});
+
+		it("resets sticky column on typing", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Start at line 2, col 8
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 8; i++) editor.handleInput("\x1b[C");
+
+			// Move up through empty line
+			editor.handleInput("\x1b[A"); // Up
+			editor.handleInput("\x1b[A"); // Up - line 0, col 8
+			expect(editor.getCursor()).toEqual({ line: 0, col: 8 });
+
+			// Type a character - resets sticky column
+			editor.handleInput("X");
+			expect(editor.getCursor()).toEqual({ line: 0, col: 9 });
+
+			// Move down twice
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 9 (new sticky from col 9)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 9 });
+		});
+
+		it("resets sticky column on backspace", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Start at line 2, col 8
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 8; i++) editor.handleInput("\x1b[C");
+
+			// Move up through empty line
+			editor.handleInput("\x1b[A"); // Up
+			editor.handleInput("\x1b[A"); // Up - line 0, col 8
+			expect(editor.getCursor()).toEqual({ line: 0, col: 8 });
+
+			// Backspace - resets sticky column
+			editor.handleInput("\x7f"); // Backspace
+			expect(editor.getCursor()).toEqual({ line: 0, col: 7 });
+
+			// Move down twice
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 7 (new sticky from col 7)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 7 });
+		});
+
+		it("resets sticky column on Ctrl+A (move to line start)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Start at line 2, col 8
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 8; i++) editor.handleInput("\x1b[C");
+
+			// Move up - establishes sticky col 8
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+
+			// Ctrl+A - resets sticky column to 0
+			editor.handleInput("\x01"); // Ctrl+A
+			expect(editor.getCursor()).toEqual({ line: 1, col: 0 });
+
+			// Move up
+			editor.handleInput("\x1b[A"); // Up - line 0, col 0 (new sticky from col 0)
+			expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
+		});
+
+		it("resets sticky column on Ctrl+E (move to line end)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("12345\n\n1234567890");
+
+			// Start at line 2, col 3
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 3; i++) editor.handleInput("\x1b[C");
+
+			// Move up through empty line - establishes sticky col 3
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 3
+			expect(editor.getCursor()).toEqual({ line: 0, col: 3 });
+
+			// Ctrl+E - resets sticky column to end
+			editor.handleInput("\x05"); // Ctrl+E
+			expect(editor.getCursor()).toEqual({ line: 0, col: 5 });
+
+			// Move down twice
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 5 (new sticky from col 5)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 5 });
+		});
+
+		it("resets sticky column on word movement (Ctrl+Left)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("hello world\n\nhello world");
+
+			// Start at end of line 2 (col 11)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 11 });
+
+			// Move up through empty line - establishes sticky col 11
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 11
+			expect(editor.getCursor()).toEqual({ line: 0, col: 11 });
+
+			// Ctrl+Left - word movement resets sticky column
+			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
+			expect(editor.getCursor()).toEqual({ line: 0, col: 6 }); // Before "world"
+
+			// Move down twice
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 6 (new sticky from col 6)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 6 });
+		});
+
+		it("resets sticky column on word movement (Ctrl+Right)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("hello world\n\nhello world");
+
+			// Start at line 0, col 0
+			editor.handleInput("\x1b[A"); // Up
+			editor.handleInput("\x1b[A"); // Up
+			editor.handleInput("\x01"); // Ctrl+A
+			expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
+
+			// Move down through empty line - establishes sticky col 0
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 0
+			expect(editor.getCursor()).toEqual({ line: 2, col: 0 });
+
+			// Ctrl+Right - word movement resets sticky column
+			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
+			expect(editor.getCursor()).toEqual({ line: 2, col: 5 }); // After "hello"
+
+			// Move up twice
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 5 (new sticky from col 5)
+			expect(editor.getCursor()).toEqual({ line: 0, col: 5 });
+		});
+
+		it("resets sticky column on undo", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Go to line 0, col 8
+			editor.handleInput("\x1b[A"); // Up to line 1
+			editor.handleInput("\x1b[A"); // Up to line 0
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 8; i++) editor.handleInput("\x1b[C");
+			expect(editor.getCursor()).toEqual({ line: 0, col: 8 });
+
+			// Move down through empty line - establishes sticky col 8
+			editor.handleInput("\x1b[B"); // Down - line 1, col 0
+			editor.handleInput("\x1b[B"); // Down - line 2, col 8 (sticky)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 8 });
+
+			// Type something to create undo state - this clears sticky and sets col to 9
+			editor.handleInput("X");
+			expect(editor.getText()).toBe("1234567890\n\n12345678X90");
+			expect(editor.getCursor()).toEqual({ line: 2, col: 9 });
+
+			// Move up - establishes new sticky col 9
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 9
+			expect(editor.getCursor()).toEqual({ line: 0, col: 9 });
+
+			// Undo - resets sticky column and restores cursor to line 2, col 8
+			editor.handleInput("\x1b[45;5u"); // Ctrl+- (undo)
+			expect(editor.getText()).toBe("1234567890\n\n1234567890");
+			expect(editor.getCursor()).toEqual({ line: 2, col: 8 });
+
+			// Move up - should capture new sticky from restored col 8, not old col 9
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 8 (new sticky from restored position)
+			expect(editor.getCursor()).toEqual({ line: 0, col: 8 });
+		});
+
+		it("handles multiple consecutive up/down movements", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\nab\ncd\nef\n1234567890");
+
+			// Start at line 4, col 7
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 7; i++) editor.handleInput("\x1b[C");
+			expect(editor.getCursor()).toEqual({ line: 4, col: 7 });
+
+			// Move up multiple times through short lines
+			editor.handleInput("\x1b[A"); // Up - line 3, col 2 (clamped)
+			editor.handleInput("\x1b[A"); // Up - line 2, col 2 (clamped)
+			editor.handleInput("\x1b[A"); // Up - line 1, col 2 (clamped)
+			editor.handleInput("\x1b[A"); // Up - line 0, col 7 (restored)
+			expect(editor.getCursor()).toEqual({ line: 0, col: 7 });
+
+			// Move down multiple times - sticky should still be 7
+			editor.handleInput("\x1b[B"); // Down - line 1, col 2
+			editor.handleInput("\x1b[B"); // Down - line 2, col 2
+			editor.handleInput("\x1b[B"); // Down - line 3, col 2
+			editor.handleInput("\x1b[B"); // Down - line 4, col 7 (restored)
+			expect(editor.getCursor()).toEqual({ line: 4, col: 7 });
+		});
+
+		it("moves correctly through wrapped visual lines without getting stuck", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Line 0: short
+			// Line 1: 30 chars = wraps to multiple visual lines at narrow width
+			editor.setText("short\n123456789012345678901234567890");
+			editor.render(16); // Narrow width to force wrapping
+
+			// Position at end of line 1 (col 30)
+			expect(editor.getCursor()).toEqual({ line: 1, col: 30 });
+
+			// Move up repeatedly - should traverse all visual lines of the wrapped text
+			// and eventually reach line 0
+			editor.handleInput("\x1b[A"); // Up - to previous visual line within line 1
+			expect(editor.getCursor().line).toBe(1);
+
+			editor.handleInput("\x1b[A"); // Up - another visual line
+			expect(editor.getCursor().line).toBe(1);
+
+			editor.handleInput("\x1b[A"); // Up - should reach line 0
+			expect(editor.getCursor().line).toBe(0);
+		});
+
+		it("handles setText resetting sticky column", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("1234567890\n\n1234567890");
+
+			// Establish sticky column
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 8; i++) editor.handleInput("\x1b[C");
+			editor.handleInput("\x1b[A"); // Up
+
+			// setText should reset sticky column
+			editor.setText("abcdefghij\n\nabcdefghij");
+			expect(editor.getCursor()).toEqual({ line: 2, col: 10 }); // At end
+
+			// Move up - should capture new sticky from current position (10)
+			editor.handleInput("\x1b[A"); // Up - line 1, col 0
+			editor.handleInput("\x1b[A"); // Up - line 0, col 10
+			expect(editor.getCursor()).toEqual({ line: 0, col: 10 });
+		});
+
+		it("sets preferredVisualCol when pressing right at end of prompt (last line)", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Line 0: 20 chars with 'x' at col 10
+			// Line 1: empty
+			// Line 2: 10 chars ending with '_'
+			editor.setText("111111111x1111111111\n\n333333333_");
+
+			// Go to line 0, press Ctrl+E (end of line) - col 20
+			editor.handleInput("\x1b[A"); // Up to line 1
+			editor.handleInput("\x1b[A"); // Up to line 0
+			editor.handleInput("\x05"); // Ctrl+E - move to end of line
+			expect(editor.getCursor()).toEqual({ line: 0, col: 20 });
+
+			// Move down to line 2 - cursor clamped to col 10 (end of line)
+			editor.handleInput("\x1b[B"); // Down to line 1, col 0
+			editor.handleInput("\x1b[B"); // Down to line 2, col 10 (clamped)
+			expect(editor.getCursor()).toEqual({ line: 2, col: 10 });
+
+			// Press Right at end of prompt - nothing visible happens, but sets preferredVisualCol to 10
+			editor.handleInput("\x1b[C"); // Right - can't move, but sets preferredVisualCol
+			expect(editor.getCursor()).toEqual({ line: 2, col: 10 }); // Still at same position
+
+			// Move up twice to line 0 - should use preferredVisualCol (10) to land on 'x'
+			editor.handleInput("\x1b[A"); // Up to line 1, col 0
+			editor.handleInput("\x1b[A"); // Up to line 0, col 10 (on 'x')
+			expect(editor.getCursor()).toEqual({ line: 0, col: 10 });
+		});
+
+		it("handles editor resizes when preferredVisualCol is on the same line", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			editor.setText("12345678901234567890\n\n12345678901234567890");
+
+			// Start at line 2, col 15
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 15; i++) editor.handleInput("\x1b[C");
+
+			// Move up through empty line - establishes sticky col 15
+			editor.handleInput("\x1b[A"); // Up
+			editor.handleInput("\x1b[A"); // Up - line 0, col 15
+			expect(editor.getCursor()).toEqual({ line: 0, col: 15 });
+
+			// Render with narrower width to simulate resize
+			editor.render(17); // Width 17 -> layoutWidth 11
+
+			// Move down - sticky should be clamped to new width
+			editor.handleInput("\x1b[B"); // Down - line 1
+			editor.handleInput("\x1b[B"); // Down - line 2, col should be clamped
+			expect(editor.getCursor().col).toBe(4);
+		});
+
+		it("handles editor resizes when preferredVisualCol is on a different line", () => {
+			const editor = new Editor(defaultEditorTheme);
+
+			// Create a line that wraps into multiple visual lines at width 10
+			// "12345678901234567890" = 20 chars, wraps to 2 visual lines at width 10
+			editor.setText("short\n12345678901234567890");
+
+			// Go to line 1, col 15
+			editor.handleInput("\x01"); // Ctrl+A
+			for (let i = 0; i < 15; i++) editor.handleInput("\x1b[C");
+			expect(editor.getCursor()).toEqual({ line: 1, col: 15 });
+
+			// Move up to establish sticky col 15
+			editor.handleInput("\x1b[A"); // Up to line 0
+			// Line 0 has only 5 chars, so cursor at col 5
+			expect(editor.getCursor()).toEqual({ line: 0, col: 5 });
+
+			// Narrow the editor
+			editor.render(15);
+
+			// Move down - preferredVisualCol was 15, but width is 10
+			// Should land on line 1, clamped to width (visual col 9, which is logical col 9)
+			editor.handleInput("\x1b[B"); // Down to line 1
+			expect(editor.getCursor()).toEqual({ line: 1, col: 8 });
+
+			// Move up
+			editor.handleInput("\x1b[A"); // Up - should go to line 0
+			expect(editor.getCursor()).toEqual({ line: 0, col: 5 }); // Line 0 only has 5 chars
+
+			// Restore the original width
+			editor.render(80);
+
+			// Move down - preferredVisualCol was kept at 15
+			editor.handleInput("\x1b[B"); // Down to line 1
+			expect(editor.getCursor()).toEqual({ line: 1, col: 15 });
+		});
+	});
+});

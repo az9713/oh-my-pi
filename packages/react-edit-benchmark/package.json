@@ -1,0 +1,36 @@
+{
+	"name": "@oh-my-pi/react-edit-benchmark",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Edit benchmark suite using React source code mutations",
+	"author": "Can Bölük",
+	"license": "MIT",
+	"type": "module",
+	"main": "./src/index.ts",
+	"bin": {
+		"react-edit-benchmark": "src/index.ts"
+	},
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"generate": "bun run src/generate.ts --react-dir /tmp/react-source --count-per-type 4",
+		"check": "tsgo -p tsconfig.json --noEmit"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/can1357/oh-my-pi.git",
+		"directory": "packages/react-edit-benchmark"
+	},
+	"engines": {
+		"bun": ">=1.3.7"
+	},
+	"dependencies": {
+		"@oh-my-pi/pi-agent-core": "workspace:*",
+		"@oh-my-pi/pi-coding-agent": "workspace:*",
+		"@oh-my-pi/pi-utils": "workspace:*",
+		"diff": "^8.0.3",
+		"prettier": "^3.8.1"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.9"
+	}
+}
