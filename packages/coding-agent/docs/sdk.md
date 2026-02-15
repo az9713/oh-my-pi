@@ -844,6 +844,7 @@ interface CreateAgentSessionResult {
 	setToolUIContext: (uiContext: ExtensionUIContext, hasUI: boolean) => void;
 
 	// MCP manager for server lifecycle management (undefined if MCP disabled)
+	// Methods: isHealthy(name), reconnect(name), disconnectServer(name), disconnectAll(), etc.
 	mcpManager?: MCPManager;
 
 	// Warning if session model couldn't be restored

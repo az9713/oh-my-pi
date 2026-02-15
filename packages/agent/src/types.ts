@@ -111,6 +111,12 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * Use for late-bound UI or session state access.
 	 */
 	getToolContext?: (toolCall?: ToolCallContext) => AgentToolContext | undefined;
+
+	/**
+	 * Optional callback invoked at the end of each turn with timing and usage metrics.
+	 * Use for observability dashboards, performance tracking, and cost monitoring.
+	 */
+	onTurnMetrics?: (metrics: TurnMetrics) => void;
 }
 
 export interface ToolCallContext {
@@ -118,6 +124,33 @@ export interface ToolCallContext {
 	index: number;
 	total: number;
 	toolCalls: Array<{ id: string; name: string }>;
+}
+
+/**
+ * Per-turn performance and usage metrics.
+ * Emitted via `onTurnMetrics` callback at the end of each turn.
+ */
+export interface TurnMetrics {
+	/** Wall-clock time for the LLM response (ms) */
+	llmLatencyMs: number;
+	/** Wall-clock time for all tool executions in this turn (ms) */
+	toolExecutionMs: number;
+	/** Total wall-clock time for this turn (ms) */
+	totalTurnMs: number;
+	/** Number of tool calls in this turn */
+	toolCallCount: number;
+	/** Per-tool timing breakdown: tool name -> duration in ms */
+	toolTimings: Record<string, number>;
+	/** Number of messages in context when LLM was called */
+	contextMessageCount: number;
+	/** Token usage from the assistant response (if available) */
+	usage?: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		totalTokens: number;
+	};
 }
 
 /**

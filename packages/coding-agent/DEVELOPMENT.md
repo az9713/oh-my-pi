@@ -578,9 +578,22 @@ bun run build:binary
 
 ### Testing
 
+**Prerequisites:** The Rust native addon must be built before running tests:
+
 ```bash
-# Run tests (from packages/coding-agent)
+# From monorepo root
+bun install
+bun --cwd=packages/natives run build:native
+```
+
+**Running tests:**
+
+```bash
+# Run all coding-agent tests
 bun test
+
+# Run a single test file
+bun test test/executor-utils.test.ts
 
 # Run specific test pattern
 bun test --testNamePattern="RPC"
@@ -588,6 +601,27 @@ bun test --testNamePattern="RPC"
 # Run RPC example interactively
 bun test/rpc-example.ts
 ```
+
+**Test files:**
+
+| File | Tests | Category |
+|---|---|---|
+| `executor-utils.test.ts` | 55 | Unit: subagent executor pure utilities (model patterns, output schemas, tool arg previews, usage tokens, report finding dedup, abort timeout) |
+| `ttsr.test.ts` | 22 | Unit: Time-Traveling Streamed Rules (pattern matching, rule injection, abort/retry) |
+| `streaming-edit-abort.test.ts` | 5 | Integration: streaming edit abort (successful/failing patches, missing files, multi-line diffs) |
+| `compaction.test.ts` | 19+2 skip | Unit/Integration: token estimation, cut points, `shouldCompact`, session context, estimation accuracy |
+| `edit-diff.test.ts` | - | Unit: edit/diff patch application |
+| `args.test.ts` | - | Unit: CLI argument parsing |
+| `rpc.test.ts` | - | Integration: RPC protocol |
+| `skills.test.ts` | - | Integration: skill discovery |
+| `extensions-*.test.ts` | - | Integration: extension system |
+| `compaction-hooks*.test.ts` | - | Integration: compaction hooks |
+| `model-registry.test.ts` | - | Unit: model registry |
+| `settings-manager.test.ts` | - | Unit: settings |
+
+Tests requiring `AgentSession` infrastructure (streaming-edit-abort, compaction, agent-session-*) are slower because they create temp directories, SQLite databases, and mock stream functions. Pure unit tests (executor-utils, ttsr, args, edit-diff) are fast.
+
+**Windows note:** `streaming-edit-abort.test.ts` may report `EBUSY` cleanup errors on Windows due to lingering SQLite handles. Tests still pass.
 
 ### Managed Binaries
 

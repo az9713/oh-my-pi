@@ -59,7 +59,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
 const isAgentEvent = (event: AgentSessionEvent): event is AgentEvent =>
 	agentEventTypes.has(event.type as AgentEvent["type"]);
 
-function normalizeModelPatterns(value: string | string[] | undefined): string[] {
+export function normalizeModelPatterns(value: string | string[] | undefined): string[] {
 	if (!value) return [];
 	if (Array.isArray(value)) {
 		return value.map(entry => entry.trim()).filter(Boolean);
@@ -70,7 +70,7 @@ function normalizeModelPatterns(value: string | string[] | undefined): string[] 
 		.filter(Boolean);
 }
 
-function withAbortTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+export function withAbortTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
 	if (signal?.aborted) {
 		return Promise.reject(new ToolAbortError());
 	}
@@ -102,7 +102,7 @@ function withAbortTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: Ab
 	return wrappedPromise;
 }
 
-function getReportFindingKey(value: unknown): string | null {
+export function getReportFindingKey(value: unknown): string | null {
 	if (!value || typeof value !== "object") return null;
 	const record = value as Record<string, unknown>;
 	const title = typeof record.title === "string" ? record.title : null;
@@ -165,7 +165,7 @@ export interface ExecutorOptions {
 	settings?: Settings;
 }
 
-function parseStringifiedJson(value: unknown): unknown {
+export function parseStringifiedJson(value: unknown): unknown {
 	if (typeof value !== "string") return value;
 	const trimmed = value.trim();
 	if (!trimmed) return value;
@@ -177,7 +177,7 @@ function parseStringifiedJson(value: unknown): unknown {
 	}
 }
 
-function normalizeOutputSchema(schema: unknown): { normalized?: unknown; error?: string } {
+export function normalizeOutputSchema(schema: unknown): { normalized?: unknown; error?: string } {
 	if (schema === undefined || schema === null) return {};
 	if (typeof schema === "string") {
 		try {
@@ -189,7 +189,7 @@ function normalizeOutputSchema(schema: unknown): { normalized?: unknown; error?:
 	return { normalized: schema };
 }
 
-function buildOutputValidator(schema: unknown): { validate?: ValidateFunction; error?: string } {
+export function buildOutputValidator(schema: unknown): { validate?: ValidateFunction; error?: string } {
 	const { normalized, error } = normalizeOutputSchema(schema);
 	if (error) return { error };
 	if (normalized === undefined) return {};
@@ -201,7 +201,7 @@ function buildOutputValidator(schema: unknown): { validate?: ValidateFunction; e
 	}
 }
 
-function tryParseJsonOutput(text: string): unknown | undefined {
+export function tryParseJsonOutput(text: string): unknown | undefined {
 	const trimmed = text.trim();
 	if (!trimmed) return undefined;
 	try {
@@ -211,7 +211,7 @@ function tryParseJsonOutput(text: string): unknown | undefined {
 	}
 }
 
-function extractCompletionData(parsed: unknown): unknown {
+export function extractCompletionData(parsed: unknown): unknown {
 	if (!parsed || typeof parsed !== "object") return parsed;
 	const record = parsed as Record<string, unknown>;
 	if ("data" in record) {
@@ -220,7 +220,7 @@ function extractCompletionData(parsed: unknown): unknown {
 	return parsed;
 }
 
-function normalizeCompleteData(data: unknown, reportFindings?: ReviewFinding[]): unknown {
+export function normalizeCompleteData(data: unknown, reportFindings?: ReviewFinding[]): unknown {
 	let normalized = parseStringifiedJson(data ?? null);
 	if (
 		Array.isArray(reportFindings) &&
@@ -237,7 +237,7 @@ function normalizeCompleteData(data: unknown, reportFindings?: ReviewFinding[]):
 	return normalized;
 }
 
-function resolveFallbackCompletion(rawOutput: string, outputSchema: unknown): { data: unknown } | null {
+export function resolveFallbackCompletion(rawOutput: string, outputSchema: unknown): { data: unknown } | null {
 	const parsed = tryParseJsonOutput(rawOutput);
 	if (parsed === undefined) return null;
 	const candidate = parseStringifiedJson(extractCompletionData(parsed));
@@ -251,7 +251,7 @@ function resolveFallbackCompletion(rawOutput: string, outputSchema: unknown): { 
 /**
  * Extract a short preview from tool args for display.
  */
-function extractToolArgsPreview(args: Record<string, unknown>): string {
+export function extractToolArgsPreview(args: Record<string, unknown>): string {
 	// Priority order for preview
 	const previewKeys = ["command", "file_path", "path", "pattern", "query", "url", "task", "prompt"];
 
@@ -282,7 +282,7 @@ function firstNumberField(record: Record<string, unknown>, keys: string[]): numb
 /**
  * Normalize usage objects from different event formats.
  */
-function getUsageTokens(usage: unknown): number {
+export function getUsageTokens(usage: unknown): number {
 	if (!usage || typeof usage !== "object") return 0;
 	const record = usage as Record<string, unknown>;
 

@@ -18,6 +18,7 @@ import type {
 	AgentTool,
 	AgentToolResult,
 	StreamFn,
+	TurnMetrics,
 } from "./types";
 
 /**
@@ -162,8 +163,13 @@ async function runLoop(
 				pendingMessages = [];
 			}
 
-			// Stream assistant response
+			// Stream assistant response (with timing)
+			const turnStartTime = Date.now();
+			const contextMessageCount = currentContext.messages.length;
+
+			const llmStartTime = Date.now();
 			const message = await streamAssistantResponse(currentContext, config, signal, stream, streamFn);
+			const llmEndTime = Date.now();
 			newMessages.push(message);
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -179,6 +185,28 @@ async function runLoop(
 					toolResults.push(result);
 				}
 				stream.push({ type: "turn_end", message, toolResults });
+
+				// Emit metrics for aborted/error turns
+				if (config.onTurnMetrics) {
+					config.onTurnMetrics({
+						llmLatencyMs: llmEndTime - llmStartTime,
+						toolExecutionMs: 0,
+						totalTurnMs: Date.now() - turnStartTime,
+						toolCallCount: 0,
+						toolTimings: {},
+						contextMessageCount,
+						usage: message.usage
+							? {
+									input: message.usage.input,
+									output: message.usage.output,
+									cacheRead: message.usage.cacheRead,
+									cacheWrite: message.usage.cacheWrite,
+									totalTokens: message.usage.totalTokens,
+								}
+							: undefined,
+					});
+				}
+
 				stream.push({ type: "agent_end", messages: newMessages });
 				stream.end(newMessages);
 				return;
@@ -189,7 +217,10 @@ async function runLoop(
 			hasMoreToolCalls = toolCalls.length > 0;
 
 			const toolResults: ToolResultMessage[] = [];
+			let toolExecutionMs = 0;
+			const toolTimings: Record<string, number> = {};
 			if (hasMoreToolCalls) {
+				const toolsStartTime = Date.now();
 				const toolExecution = await executeToolCalls(
 					currentContext.tools,
 					message,
@@ -199,8 +230,16 @@ async function runLoop(
 					config.getToolContext,
 					config.interruptMode,
 				);
+				toolExecutionMs = Date.now() - toolsStartTime;
 				toolResults.push(...toolExecution.toolResults);
 				steeringAfterTools = toolExecution.steeringMessages ?? null;
+
+				// Aggregate per-tool timings from tool results
+				if (toolExecution.toolTimings) {
+					for (const [name, ms] of Object.entries(toolExecution.toolTimings)) {
+						toolTimings[name] = (toolTimings[name] ?? 0) + ms;
+					}
+				}
 
 				for (const result of toolResults) {
 					currentContext.messages.push(result);
@@ -209,6 +248,27 @@ async function runLoop(
 			}
 
 			stream.push({ type: "turn_end", message, toolResults });
+
+			// Emit turn metrics
+			if (config.onTurnMetrics) {
+				config.onTurnMetrics({
+					llmLatencyMs: llmEndTime - llmStartTime,
+					toolExecutionMs,
+					totalTurnMs: Date.now() - turnStartTime,
+					toolCallCount: toolCalls.length,
+					toolTimings,
+					contextMessageCount,
+					usage: message.usage
+						? {
+								input: message.usage.input,
+								output: message.usage.output,
+								cacheRead: message.usage.cacheRead,
+								cacheWrite: message.usage.cacheWrite,
+								totalTokens: message.usage.totalTokens,
+							}
+						: undefined,
+				});
+			}
 
 			// Get steering messages after turn completes
 			if (steeringAfterTools && steeringAfterTools.length > 0) {
@@ -371,7 +431,7 @@ async function executeToolCalls(
 	getSteeringMessages?: AgentLoopConfig["getSteeringMessages"],
 	getToolContext?: AgentLoopConfig["getToolContext"],
 	interruptMode: AgentLoopConfig["interruptMode"] = "immediate",
-): Promise<{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] }> {
+): Promise<{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[]; toolTimings?: Record<string, number> }> {
 	type ToolCallContent = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
 	const toolCalls = assistantMessage.content.filter((c): c is ToolCallContent => c.type === "toolCall");
 	const results: ToolResultMessage[] = [];
@@ -407,6 +467,8 @@ async function executeToolCalls(
 		await steeringCheck;
 	};
 
+	const perToolTimings: Record<string, number> = {};
+
 	const records = toolCalls.map(toolCall => ({
 		toolCall,
 		tool: tools?.find(t => t.name === toolCall.name),
@@ -431,6 +493,7 @@ async function executeToolCalls(
 			args: toolCall.arguments,
 		});
 
+		const toolStartTime = Date.now();
 		let result: AgentToolResult<any>;
 		let isError = false;
 
@@ -469,6 +532,9 @@ async function executeToolCalls(
 			};
 			isError = true;
 		}
+
+		const toolDurationMs = Date.now() - toolStartTime;
+		perToolTimings[toolCall.name] = (perToolTimings[toolCall.name] ?? 0) + toolDurationMs;
 
 		if (!interruptState.triggered) {
 			record.result = result;
@@ -536,7 +602,7 @@ async function executeToolCalls(
 		stream.push({ type: "message_end", message: toolResultMessage });
 	}
 
-	return { toolResults: results, steeringMessages };
+	return { toolResults: results, steeringMessages, toolTimings: perToolTimings };
 }
 
 function createSkippedToolResult(): AgentToolResult<any> {

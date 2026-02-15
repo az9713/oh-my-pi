@@ -232,6 +232,23 @@ export async function disconnectServer(connection: MCPServerConnection): Promise
 }
 
 /**
+ * Ping a connected server to check if it's responsive.
+ * Uses the MCP `ping` method. Returns true if the server responds within the timeout.
+ */
+export async function pingServer(connection: MCPServerConnection, timeoutMs = 5_000): Promise<boolean> {
+	try {
+		await withTimeout(
+			connection.transport.request<Record<string, unknown>>("ping", {}),
+			timeoutMs,
+			`Ping to "${connection.name}" timed out`,
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Check if a server supports tools.
  */
 export function serverSupportsTools(capabilities: MCPServerCapabilities): boolean {

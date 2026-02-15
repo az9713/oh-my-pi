@@ -257,6 +257,34 @@ function estimateEntriesTokens(entries: SessionEntry[], startIndex: number, endI
 }
 
 /**
+ * Compare estimated token count (chars/4 heuristic) vs actual prompt tokens from LLM usage.
+ * Returns the accuracy ratio (actual / estimated).
+ * A ratio > 1 means the heuristic underestimates; < 1 means it overestimates.
+ * Returns undefined if no valid comparison can be made.
+ */
+export function estimateTokenAccuracy(
+	entries: SessionEntry[],
+	startIndex: number,
+	endIndex: number,
+): { ratio: number; estimated: number; actual: number } | undefined {
+	const sliced = entries.slice(startIndex, endIndex);
+	const lastUsage = getLastAssistantUsage(sliced);
+	if (!lastUsage) return undefined;
+
+	const estimated = estimateEntriesTokens(entries, startIndex, endIndex);
+	if (estimated === 0) return undefined;
+
+	const actual = calculatePromptTokens(lastUsage);
+	if (actual === 0) return undefined;
+
+	return {
+		ratio: actual / estimated,
+		estimated,
+		actual,
+	};
+}
+
+/**
  * Find valid cut points: indices of user, assistant, custom, or bashExecution messages.
  * Never cut at tool results (they must follow their tool call).
  * When we cut at an assistant message with tool calls, its tool results follow it
@@ -613,6 +641,8 @@ export interface CompactionPreparation {
 	fileOps: FileOperations;
 	/** Compaction settions from settings.jsonl	*/
 	settings: CompactionSettings;
+	/** Estimation accuracy: actual/estimated token ratio (for calibration) */
+	estimationAccuracy?: { ratio: number; estimated: number; actual: number };
 }
 
 export function prepareCompaction(
@@ -696,6 +726,9 @@ export function prepareCompaction(
 		}
 	}
 
+	// Compute estimation accuracy for calibration tracking
+	const accuracy = estimateTokenAccuracy(pathEntries, boundaryStart, boundaryEnd);
+
 	return {
 		firstKeptEntryId,
 		messagesToSummarize,
@@ -706,6 +739,7 @@ export function prepareCompaction(
 		previousSummary,
 		fileOps,
 		settings,
+		estimationAccuracy: accuracy,
 	};
 }
 

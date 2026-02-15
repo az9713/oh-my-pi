@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-oh-my-pi is a fork of [badlogic/pi-mono](https://github.com/can1357/oh-my-pi) — an AI coding agent for the terminal. It's a Bun + Rust monorepo with TypeScript packages and Rust N-API native addons. The primary focus is `packages/coding-agent/` (the CLI application). When the user says "agent" they mean the coding-agent package implementation, not the assistant.
+oh-my-pi is a fork of [badlogic/pi-mono](https://github.com/badlogic/pi-mono) — an AI coding agent for the terminal. It's a Bun + Rust monorepo with TypeScript packages and Rust N-API native addons. The primary focus is `packages/coding-agent/` (the CLI application). When the user says "agent" they mean the coding-agent package implementation, not the assistant.
 
 ## Commands
 
@@ -23,6 +23,8 @@ oh-my-pi is a fork of [badlogic/pi-mono](https://github.com/can1357/oh-my-pi) �
 | `bun test test/specific.test.ts` | Run a single test file |
 | `bun run release` | Release script (version bump, changelog, tag, publish) |
 
+**Test prerequisites:** `bun install` for dependencies, then `bun --cwd=packages/natives run build:native` for the Rust addon (required by coding-agent and swarm-extension tests; agent package tests work without it).
+
 **Do NOT** run `bun run dev`, `bun test`, or `bun run test` unless the user instructs. Do NOT use `tsc` or `npx tsc` — always use `bun check`. Do NOT commit unless the user asks.
 
 ## Package Architecture
@@ -36,8 +38,10 @@ packages/
   agent/          @oh-my-pi/pi-agent-core    Agent runtime with tool calling and state management
   coding-agent/   @oh-my-pi/pi-coding-agent  Main CLI application (PRIMARY FOCUS)
   stats/          @oh-my-pi/omp-stats        Local observability dashboard
+  swarm-extension/ @oh-my-pi/swarm-extension Swarm orchestration extension
+  react-edit-benchmark/ (private)            Edit benchmark suite for testing
 crates/
-  pi-natives/                Rust N-API addon (~7,500 lines: grep, shell, text, keys, highlight, glob, etc.)
+  pi-natives/                Rust N-API addon (~8,200 lines: grep, shell, text, keys, highlight, glob, etc.)
   brush-core-vendored/       Vendored brush-shell for embedded bash
   brush-builtins-vendored/   Vendored bash builtins
 ```

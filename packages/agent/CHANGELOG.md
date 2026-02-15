@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `TurnMetrics` interface and `onTurnMetrics` callback to `AgentLoopConfig` for per-turn performance telemetry (LLM latency, tool execution times, context size, token usage)
+- Added shared `MockAssistantStream` and `createMockStreamFn()` test utilities in `test/mock-stream.ts`
+- Added extended agent loop tests covering follow-up queuing, tool concurrency (shared vs exclusive), and steering interruption
+- Added agent loop telemetry tests validating `TurnMetrics` emission and timing accuracy
+
 ## [12.2.0] - 2026-02-13
 
 ### Added

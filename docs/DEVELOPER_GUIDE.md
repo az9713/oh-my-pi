@@ -362,15 +362,37 @@ bun packages/coding-agent/src/cli.ts --mode rpc --no-session
 
 ## Testing
 
+### Prerequisites
+
+Before running tests, install dependencies and build the Rust native addon:
+
+```bash
+# Install all JavaScript/TypeScript dependencies
+bun install
+
+# Build the Rust N-API native addon (required for coding-agent and swarm-extension tests)
+bun --cwd=packages/natives run build:native
+```
+
+The native addon build requires a Rust nightly toolchain and takes several minutes on the first build. Without it, tests that import from `@oh-my-pi/pi-coding-agent` or `@oh-my-pi/pi-natives` will fail with `Failed to load pi_natives native addon`.
+
+The `agent` package tests do **not** require the native addon and can run immediately after `bun install`.
+
+### Running Tests
+
 ```bash
 # Run ALL tests across all packages
 bun run test
 
 # Run tests for a specific package
+bun --cwd=packages/agent test
 bun --cwd=packages/coding-agent test
 
 # Run a specific test file
-bun test test/specific.test.ts
+bun test packages/coding-agent/test/executor-utils.test.ts
+
+# Run multiple specific test files
+bun test packages/swarm-extension/test/dag.test.ts packages/swarm-extension/test/schema.test.ts
 
 # Run tests matching a pattern
 bun test --testNamePattern="RPC"
@@ -378,7 +400,51 @@ bun test --testNamePattern="RPC"
 
 Tests use `bun:test` (Bun's built-in test runner, similar to Jest). Test files are named `*.test.ts` and live in `test/` directories within each package.
 
-Example test structure:
+### Test Inventory
+
+#### packages/agent (pi-agent-core)
+
+| Test file | Tests | Description |
+|---|---|---|
+| `agent.test.ts` | Core Agent class | Agent construction, prompting, message handling |
+| `agent-loop.test.ts` | Agent loop basics | Basic loop execution, tool calling, stop conditions |
+| `agent-loop-extended.test.ts` | Agent loop advanced | Follow-up queuing, tool concurrency (shared vs exclusive), steering interruption |
+| `agent-loop-telemetry.test.ts` | TurnMetrics | Per-turn telemetry emission: LLM latency, tool times, context size, token usage |
+
+Shared test utilities in `test/mock-stream.ts`: `MockAssistantStream`, `createMockStreamFn()`, `createAssistantMessage()`, `createToolCall()`.
+
+#### packages/coding-agent (pi-coding-agent)
+
+| Test file | Tests | Description |
+|---|---|---|
+| `executor-utils.test.ts` | 55 | Subagent executor pure utilities: model pattern normalization, output schema handling, tool arg previews, usage token extraction, report finding dedup, abort timeout |
+| `ttsr.test.ts` | 22 | Time-Traveling Streamed Rules: pattern matching, rule injection, abort/retry |
+| `streaming-edit-abort.test.ts` | 5 | Streaming edit abort: successful patches, failing patches, missing files, multi-line diffs |
+| `compaction.test.ts` | 19+2 skip | Context compaction: token estimation, cut points, `shouldCompact`, session context building |
+| `edit-diff.test.ts` | - | Edit/diff patch application |
+| `args.test.ts` | - | CLI argument parsing |
+| `rpc.test.ts` | - | RPC protocol commands and responses |
+| `skills.test.ts` | - | Skill discovery and loading |
+| `extensions-*.test.ts` | - | Extension discovery and event dispatch |
+| `compaction-hooks*.test.ts` | - | Compaction hook integration |
+| `model-registry.test.ts` | - | Model registry and resolution |
+| `settings-manager.test.ts` | - | Settings loading and merging |
+
+(See `packages/coding-agent/test/` for the full list of test files.)
+
+#### packages/swarm-extension
+
+| Test file | Tests | Description |
+|---|---|---|
+| `dag.test.ts` | - | DAG dependency graph: topological sort, cycle detection (Kahn's algorithm), execution wave computation |
+| `schema.test.ts` | - | Swarm task and agent configuration schema validation |
+
+### Known Platform Issues
+
+- **Windows EBUSY errors**: The `streaming-edit-abort.test.ts` `afterEach` cleanup may report `EBUSY: resource busy or locked` on Windows because SQLite file handles linger after `session.dispose()`. Tests still pass; the errors are cleanup warnings only.
+
+### Example Test Structure
+
 ```typescript
 import { describe, it, expect } from "bun:test";
 

@@ -10,7 +10,7 @@ import type { SourceMeta } from "../capability/types";
 import { resolveConfigValue } from "../config/resolve-config-value";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 import type { AuthStorage } from "../session/auth-storage";
-import { connectToServer, disconnectServer, listTools } from "./client";
+import { connectToServer, disconnectServer, listTools, pingServer } from "./client";
 import { loadAllMCPConfigs, validateServerConfig } from "./config";
 import type { MCPToolDetails } from "./tool-bridge";
 import { DeferredMCPTool, MCPTool } from "./tool-bridge";
@@ -327,6 +327,58 @@ export class MCPManager {
 		const pending = this.#pendingConnections.get(name);
 		if (pending) return pending;
 		throw new Error(`MCP server not connected: ${name}`);
+	}
+
+	/**
+	 * Check if a server connection is healthy via MCP ping.
+	 * Returns false if the server is not connected or unresponsive.
+	 */
+	async isHealthy(name: string): Promise<boolean> {
+		const connection = this.#connections.get(name);
+		if (!connection) return false;
+		return pingServer(connection);
+	}
+
+	/**
+	 * Reconnect to a specific server.
+	 * Disconnects the existing connection and re-establishes it with the same config.
+	 * Returns the new connection or null if reconnection failed.
+	 */
+	async reconnect(name: string): Promise<MCPServerConnection | null> {
+		const connection = this.#connections.get(name);
+		if (!connection) return null;
+
+		const config = connection.config;
+		const source = this.#sources.get(name);
+
+		// Disconnect existing
+		await this.disconnectServer(name);
+
+		// Restore source metadata since disconnectServer clears it
+		if (source) {
+			this.#sources.set(name, source);
+		}
+
+		// Reconnect with the same config
+		try {
+			const result = await this.connectServers(
+				{ [name]: config },
+				source ? { [name]: source } : {},
+			);
+
+			if (result.errors.has(name)) {
+				logger.warn("MCP reconnection failed", { server: name, error: result.errors.get(name) });
+				return null;
+			}
+
+			return this.#connections.get(name) ?? null;
+		} catch (error) {
+			logger.warn("MCP reconnection error", {
+				server: name,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return null;
+		}
 	}
 
 	/**

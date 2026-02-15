@@ -40,7 +40,7 @@ Auto-compaction is controlled by `compaction.enabled`. After threshold compactio
 
 ### How It Works
 
-1. **Prepare**: `prepareCompaction()` finds the latest compaction boundary and chooses a cut point that keeps approximately `keepRecentTokens` (adjusted using usage data).
+1. **Prepare**: `prepareCompaction()` finds the latest compaction boundary and chooses a cut point that keeps approximately `keepRecentTokens` (adjusted using usage data). It also computes an `estimationAccuracy` metric comparing the chars/4 heuristic against actual token usage from the last LLM response.
 2. **Extract**: Collect messages to summarize, plus a turn prefix if the cut point splits a turn.
 3. **Track files**: Gather file ops from `read`/`write`/`edit` tool calls and previous compaction details.
 4. **Summarize**:
@@ -111,6 +111,23 @@ Valid cut points are:
 - `custom_message` and `branch_summary` entries (treated as user-role messages)
 
 Never cut at tool results; they must stay with their tool call. Non-message entries (model changes, labels, etc.) are pulled into the kept region before the cut point until a message or compaction boundary is reached.
+
+### Token Estimation Accuracy
+
+Compaction relies on a chars/4 heuristic to estimate token counts. `prepareCompaction()` includes an `estimationAccuracy` field on its return value that compares this heuristic against actual token usage from the most recent LLM response:
+
+```typescript
+interface CompactionPreparation {
+	// ... other fields ...
+	estimationAccuracy?: {
+		ratio: number;     // actual / estimated (1.0 = perfect)
+		estimated: number; // tokens estimated by chars/4
+		actual: number;    // tokens reported by the LLM
+	};
+}
+```
+
+Use `estimateTokenAccuracy(entries, startIndex, endIndex)` directly to compute this metric for any entry range. Returns `undefined` when no usage data is available in the range.
 
 ### CompactionEntry Structure
 

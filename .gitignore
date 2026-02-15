@@ -49,3 +49,6 @@ __pycache__/
 target/
 
 *.node
+
+
+.ignore/

@@ -244,4 +244,60 @@ describe("streaming edit abort", () => {
 			await session.dispose();
 		}
 	});
+
+	it("does not abort when target file does not exist", async () => {
+		// File "missing.txt" is not created — the streaming checker cannot validate
+		// against a non-existent file, so it does not trigger an early abort.
+		const diff = "@@\n-hello\n+world\n";
+		const chunks = chunkStringRandomly(diff, 42);
+		const abortSignalRef: { current?: AbortSignal } = {};
+		const streamFn = createStreamForDiff("missing.txt", chunks, abortSignalRef);
+		const session = await createSession(tempDir, streamFn, editTool);
+
+		await session.prompt("apply patch");
+
+		const lastAssistant = lastAssistantMessage(session.state.messages);
+		expect(lastAssistant?.stopReason).not.toBe("aborted");
+		expect(abortSignalRef.current?.aborted ?? false).toBe(false);
+		await session.dispose();
+	});
+
+	it("does not abort for multi-line successful patch", async () => {
+		const content = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+		await Bun.write(path.join(tempDir, "multi.txt"), content);
+		const diff = "@@\n-line 10\n+line 10 modified\n";
+
+		for (const seed of [13, 37, 99]) {
+			const chunks = chunkStringRandomly(diff, seed);
+			const abortSignalRef: { current?: AbortSignal } = {};
+			const streamFn = createStreamForDiff("multi.txt", chunks, abortSignalRef);
+			const session = await createSession(tempDir, streamFn, editTool);
+
+			await session.prompt("apply patch");
+
+			const lastAssistant = lastAssistantMessage(session.state.messages);
+			expect(lastAssistant?.stopReason).not.toBe("aborted");
+			expect(abortSignalRef.current?.aborted ?? false).toBe(false);
+			await session.dispose();
+		}
+	});
+
+	it("aborts for multi-line patch targeting wrong content", async () => {
+		const content = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+		await Bun.write(path.join(tempDir, "multi.txt"), content);
+		// This diff targets content that doesn't exist in the file
+		const diff = "@@\n-nonexistent line A\n-nonexistent line B\n+replaced A\n+replaced B\n";
+
+		const chunks = chunkStringRandomly(diff, 55);
+		const abortSignalRef: { current?: AbortSignal } = {};
+		const streamFn = createStreamForDiff("multi.txt", chunks, abortSignalRef);
+		const session = await createSession(tempDir, streamFn, editTool);
+
+		await session.prompt("apply patch");
+
+		const lastAssistant = lastAssistantMessage(session.state.messages);
+		expect(lastAssistant?.stopReason).toBe("aborted");
+		expect(abortSignalRef.current?.aborted ?? false).toBe(true);
+		await session.dispose();
+	});
 });

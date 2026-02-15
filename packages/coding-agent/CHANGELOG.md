@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `pingServer()` function to MCP client for lightweight server health checks via the MCP `ping` method
+- Added `MCPManager.isHealthy(name)` method to check if a connected MCP server is responsive
+- Added `MCPManager.reconnect(name)` method to disconnect and re-establish an MCP server connection
+- Added `estimateTokenAccuracy()` function to compaction module for comparing the chars/4 heuristic against actual token usage from LLM responses
+- Added `estimationAccuracy` field to `CompactionPreparation` interface for token estimation drift tracking
+- Exported 12 pure utility functions from the subagent executor module for independent testing: `normalizeModelPatterns`, `withAbortTimeout`, `getReportFindingKey`, `parseStringifiedJson`, `normalizeOutputSchema`, `buildOutputValidator`, `tryParseJsonOutput`, `extractCompletionData`, `normalizeCompleteData`, `resolveFallbackCompletion`, `extractToolArgsPreview`, `getUsageTokens`
+- Added comprehensive executor utility tests (`test/executor-utils.test.ts`) covering all 12 exported functions
+- Added streaming edit abort tests for missing target file, multi-line successful patch, and multi-line patch targeting wrong content
+- Added TTSR (Time-Traveling Streamed Rules) unit tests (`test/ttsr.test.ts`) for rule matching, injection, and abort/retry behavior
+
 ## [12.4.0] - 2026-02-14
 ### Changed
 
