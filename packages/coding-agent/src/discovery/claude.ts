@@ -83,8 +83,16 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 		const mcpServers = expandEnvVarsDeep(json.mcpServers);
 		return Object.entries(mcpServers).map(([name, config]) => {
 			const serverConfig = config as Record<string, unknown>;
+			// Map "disabled: true" to "enabled: false" and "enabled" field directly
+			let enabled: boolean | undefined;
+			if (serverConfig.disabled === true) {
+				enabled = false;
+			} else if (typeof serverConfig.enabled === "boolean") {
+				enabled = serverConfig.enabled;
+			}
 			return {
 				name,
+				enabled,
 				command: serverConfig.command as string | undefined,
 				args: serverConfig.args as string[] | undefined,
 				env: serverConfig.env as Record<string, string> | undefined,

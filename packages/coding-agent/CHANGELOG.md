@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed MCP discovery providers (`claude.ts`, `cursor.ts`, `windsurf.ts`, `gemini.ts`, `vscode.ts`, `mcp-json.ts`) not mapping `"disabled": true` to the canonical `enabled: false` field, causing disabled servers to still be connected on startup and triggering EPIPE crashes
+
 ### Added
 
 - Added `pingServer()` function to MCP client for lightweight server health checks via the MCP `ping` method

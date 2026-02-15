@@ -80,8 +80,16 @@ async function loadMCPConfig(
 		// Expand environment variables
 		const expanded = expandEnvVarsDeep(raw);
 
+		let enabled: boolean | undefined;
+		if (expanded.disabled === true) {
+			enabled = false;
+		} else if (typeof expanded.enabled === "boolean") {
+			enabled = expanded.enabled;
+		}
+
 		const server: MCPServer = {
 			name,
+			enabled,
 			command: typeof expanded.command === "string" ? expanded.command : undefined,
 			args: Array.isArray(expanded.args) ? (expanded.args as string[]) : undefined,
 			env: expanded.env && typeof expanded.env === "object" ? (expanded.env as Record<string, string>) : undefined,

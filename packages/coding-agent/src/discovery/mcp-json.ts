@@ -49,8 +49,11 @@ function transformMCPConfig(config: MCPConfigFile, source: SourceMeta): MCPServe
 	if (config.mcpServers) {
 		for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
 			// Runtime type validation for user-controlled JSON values
+			// Support both "disabled: true" and "enabled: false" patterns
 			let enabled: boolean | undefined;
-			if (serverConfig.enabled !== undefined) {
+			if ((serverConfig as Record<string, unknown>).disabled === true) {
+				enabled = false;
+			} else if (serverConfig.enabled !== undefined) {
 				if (typeof serverConfig.enabled === "boolean") {
 					enabled = serverConfig.enabled;
 				} else {

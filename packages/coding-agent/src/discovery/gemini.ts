@@ -99,9 +99,16 @@ async function loadMCPFromSettings(
 		}
 
 		const raw = config as Record<string, unknown>;
+		let enabled: boolean | undefined;
+		if (raw.disabled === true) {
+			enabled = false;
+		} else if (typeof raw.enabled === "boolean") {
+			enabled = raw.enabled;
+		}
 
 		items.push({
 			name,
+			enabled,
 			command: typeof raw.command === "string" ? raw.command : undefined,
 			args: Array.isArray(raw.args) ? (raw.args as string[]) : undefined,
 			env: raw.env && typeof raw.env === "object" ? (raw.env as Record<string, string>) : undefined,

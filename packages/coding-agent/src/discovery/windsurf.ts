@@ -44,9 +44,16 @@ function parseServerConfig(
 	}
 
 	const server = expandEnvVarsDeep(serverConfig as Record<string, unknown>);
+	let enabled: boolean | undefined;
+	if (server.disabled === true) {
+		enabled = false;
+	} else if (typeof server.enabled === "boolean") {
+		enabled = server.enabled;
+	}
 	return {
 		server: {
 			name,
+			enabled,
 			command: server.command as string | undefined,
 			args: server.args as string[] | undefined,
 			env: server.env as Record<string, string> | undefined,
