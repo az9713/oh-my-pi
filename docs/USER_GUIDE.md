@@ -164,6 +164,27 @@ echo 'export ANTHROPIC_API_KEY="your-key-here"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
+### Using .env Files
+
+Instead of shell profiles, you can store API keys in `.env` files. omp loads them automatically from these locations (highest priority first):
+
+| Location | Scope |
+|---|---|
+| `.omp/.env` | Project omp config (highest `.env` priority) |
+| `~/.omp/agent/.env` | User omp config |
+| `.env` (cwd) | Project dotenv |
+| `~/.env` | User dotenv (lowest priority) |
+
+Process environment variables always take precedence over `.env` files. Within `.env` files, the first file to define a key wins.
+
+Example `~/.omp/agent/.env`:
+```
+ANTHROPIC_API_KEY=sk-ant-api03-...
+OPENAI_API_KEY=sk-...
+```
+
+This is convenient because it keeps secrets out of shell history and works across all shells.
+
 ### First Launch
 
 Navigate to any project directory and start omp:
@@ -1067,7 +1088,7 @@ Set your API key as an environment variable:
 ```bash
 export ANTHROPIC_API_KEY="your-key"
 ```
-Add to `~/.bashrc` or `~/.zshrc`.
+Add to `~/.bashrc` or `~/.zshrc`, or place it in `~/.omp/agent/.env` (see [Using .env Files](#using-env-files)).
 
 ### "Context limit exceeded"
 

@@ -203,3 +203,4 @@ See `docs/porting-from-pi-mono.md` for the full merge guide and `docs/porting-to
 - `docs/ENHANCEMENTS.md` — Agent harness enhancement documentation (why/how/what for all 8 enhancements)
 - `docs/porting-from-pi-mono.md` — Upstream merge guide
 - `docs/porting-to-natives.md` — Rust N-API porting guide
+- `docs_by_omp/` — Introspective docs written by omp (agent harness tutorial, subagent orchestration code paths, enhancement proposals)

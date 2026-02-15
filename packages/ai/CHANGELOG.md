@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Removed retired `claude-3-5-sonnet-20240620` model from registry (Anthropic and Bedrock entries) -- model has been sunset by Anthropic
+
 ## [12.2.0] - 2026-02-13
 
 ### Added

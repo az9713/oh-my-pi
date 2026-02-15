@@ -208,6 +208,13 @@ export GOOGLE_API_KEY="your-key-here"      # Google Gemini
 
 Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.profile`) so it persists.
 
+Alternatively, you can place API keys in a `.env` file. omp loads `.env` files automatically from `~/.omp/agent/.env` (user-level), `.omp/.env` (project-level), `cwd/.env`, and `~/.env`, in that priority order. For example:
+
+```bash
+mkdir -p ~/.omp/agent
+echo 'ANTHROPIC_API_KEY=your-key-here' > ~/.omp/agent/.env
+```
+
 ---
 
 ## Project Structure Overview
@@ -439,7 +446,7 @@ Shared test utilities in `test/mock-stream.ts`: `MockAssistantStream`, `createMo
 | `dag.test.ts` | - | DAG dependency graph: topological sort, cycle detection (Kahn's algorithm), execution wave computation |
 | `schema.test.ts` | - | Swarm task and agent configuration schema validation |
 
-For detailed documentation of each agent harness enhancement (mock streams, telemetry, MCP resilience, compaction metrics, etc.), see [ENHANCEMENTS.md](ENHANCEMENTS.md).
+For detailed documentation of each agent harness enhancement (mock streams, telemetry, MCP resilience, compaction metrics, etc.), see [ENHANCEMENTS.md](ENHANCEMENTS.md). For introspective deep dives into the agent harness internals and subagent orchestration code paths, see [`docs_by_omp/`](../docs_by_omp/).
 
 ### Known Platform Issues
 
@@ -973,7 +980,7 @@ Set your API key as an environment variable:
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
 ```
-Add it to your shell profile for persistence.
+Add it to your shell profile for persistence, or place it in `~/.omp/agent/.env`.
 
 ---
 
