@@ -7,19 +7,61 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent"><img src="https://img.shields.io/npm/v/@oh-my-pi/pi-coding-agent?style=flat&colorA=222222&colorB=CB3837" alt="npm version"></a>
-  <a href="https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-keep-E05735?style=flat&colorA=222222" alt="Changelog"></a>
-  <a href="https://github.com/can1357/oh-my-pi/actions"><img src="https://img.shields.io/github/actions/workflow/status/can1357/oh-my-pi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
-  <a href="https://github.com/can1357/oh-my-pi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/can1357/oh-my-pi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&colorA=222222&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat&colorA=222222" alt="Bun"></a>
-  <a href="https://discord.gg/4NMW9cdXZa"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&colorA=222222&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://github.com/can1357/oh-my-pi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/can1357/oh-my-pi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
 </p>
 
-<p align="center">
-  Fork of <a href="https://github.com/badlogic/pi-mono">badlogic/pi-mono</a> by <a href="https://github.com/mariozechner">@mariozechner</a>
-</p>
+> **This is a fork of [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)** (itself a fork of [badlogic/pi-mono](https://github.com/badlogic/pi-mono) by [@mariozechner](https://github.com/mariozechner)).
+>
+> This fork focuses on **agent harness enhancements** -- strengthening the infrastructure around the LLM that covers the agent loop, tool execution, context management, MCP connectivity, and subagent orchestration.
+
+---
+
+## What This Fork Adds
+
+This fork adds 8 targeted enhancements to the agent harness with full test coverage and documentation. These changes do not modify the user-facing CLI or TUI -- they strengthen the internal infrastructure that makes the agent reliable and observable.
+
+### 1. Mock Stream Utilities & Extended Agent Loop Tests
+Reusable test infrastructure for simulating multi-turn LLM conversations. Enables testing of exclusive tool concurrency, steering interrupts, follow-up message queuing, and error handling without real API calls.
+
+### 2. Subagent Executor Utility Tests
+55 unit tests for the pure utility functions that normalize model patterns, extract tool argument previews, handle usage token variants across providers, deduplicate report findings, and manage abort timeouts.
+
+### 3. Agent Loop Telemetry (TurnMetrics)
+A per-turn metrics callback (`onTurnMetrics`) that surfaces LLM latency, tool execution timing, per-tool breakdowns, context message counts, and token usage. Enables dashboards and performance monitoring.
+
+### 4. TTSR (Time-Traveling Streamed Rules) Unit Tests
+22 tests covering the pattern-matching rule injection system. Validates regex compilation, once vs repeat-after-gap triggering, buffer management, and state persistence across sessions.
+
+### 5. MCP Connection Resilience
+Timeout protection and abort signal support for MCP server connections. The manager starts servers in parallel with tracked promises, isolates failures, and returns partial results so the agent can work with available servers even if some fail.
+
+### 6. Swarm Extension Tests
+Tests for the DAG dependency graph algorithms (cycle detection, execution wave computation) and YAML schema validation used by the swarm orchestration system.
+
+### 7. Compaction Quality Metrics
+Token estimation, file operation tracking, and compaction trigger logic for long-running sessions. Chains file access metadata across compaction cycles so context-critical files are preserved.
+
+### 8. Extended Streaming Edit Abort Tests
+Integration tests for abort handling during streaming tool calls. Validates that partial diff state is captured for error reporting when users cancel mid-stream.
+
+For full details on each enhancement, see [docs/ENHANCEMENTS.md](docs/ENHANCEMENTS.md).
+
+---
+
+## Relationship to Upstream
+
+| | Upstream ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) | This Fork |
+|---|---|---|
+| **Focus** | Full-featured AI coding agent | Agent harness reliability & observability |
+| **Changes** | CLI, TUI, tools, providers, extensions | Agent loop, test infrastructure, metrics, resilience |
+| **User-facing** | Yes (new features, UI changes) | No (internal infrastructure only) |
+| **Test coverage** | Baseline | +8 enhancement test suites |
+| **Documentation** | User guides, developer guides | Added ENHANCEMENTS.md with why/how/what |
+
+This fork is intended to stay compatible with upstream. The enhancements are additive and do not break existing functionality.
 
 ---
 
