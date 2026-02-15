@@ -51,6 +51,22 @@ For full details on each enhancement, see [docs/ENHANCEMENTS.md](docs/ENHANCEMEN
 
 ---
 
+## Learning the Agent Harness
+
+The [`docs_by_omp/`](docs_by_omp/) directory contains introspective documentation written by omp itself while exploring this codebase. These docs demystify the agent harness internals -- how the agent loop works, how subagents are orchestrated in parallel, and how the pieces fit together.
+
+| Document | What it covers |
+|---|---|
+| [Agent Harness Tutorial](docs_by_omp/AGENT_HARNESS_TUTORIAL.md) | Comprehensive walkthrough of the agent harness architecture -- core components, agent loop, session management, event system, tool execution, and extensibility |
+| [Subagent Orchestration Code Path](docs_by_omp/SUBAGENT_ORCHESTRATION_CODE_PATH.md) | Traces the exact code path when spawning 3 parallel research subagents -- from task tool dispatch through the executor to result aggregation |
+| [Code Path Analysis](docs_by_omp/CODE_PATH_ANALYSIS.md) | Maps a real read-only analysis task to the agent harness components, showing how each layer (discovery, tool execution, report generation) contributed |
+| [Enhancement Proposals](docs_by_omp/OH_MY_PI_ENHANCEMENT_PROPOSALS.md) | 12 concrete enhancements identified by 3 parallel research agents across performance, extensibility, and developer experience |
+| [TypeScript Migration Analysis](docs_by_omp/TYPESCRIPT_MIGRATION_ANALYSIS.md) | Feasibility analysis for strict TypeScript migration, produced as a worked example of multi-file codebase analysis |
+
+These are particularly useful if you want to understand how parallel subagent orchestration works in practice, or if you're planning to extend the agent harness yourself.
+
+---
+
 ## Relationship to Upstream
 
 | | Upstream ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)) | This Fork |
@@ -67,6 +83,7 @@ This fork is intended to stay compatible with upstream. The enhancements are add
 
 ## Table of Contents
 
+- [Learning the Agent Harness](#learning-the-agent-harness)
 - [Project Overview](#project-overview)
 - [Key Features](#key-features)
 - [Prerequisites](#prerequisites)
