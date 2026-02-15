@@ -48,7 +48,13 @@ function parseEnvFile(filePath: string): Record<string, string> {
 const homeEnv = parseEnvFile(path.join(os.homedir(), ".env"));
 const projectEnv = parseEnvFile(path.join(process.cwd(), ".env"));
 
-for (const file of [projectEnv, homeEnv]) {
+// omp config directory .env files (higher priority than generic .env).
+// PI_CONFIG_DIR may itself come from a .env file, so resolve it after parsing the standard ones.
+const configDirName = process.env.PI_CONFIG_DIR || projectEnv.PI_CONFIG_DIR || homeEnv.PI_CONFIG_DIR || ".omp";
+const ompUserEnv = parseEnvFile(path.join(os.homedir(), configDirName, "agent", ".env"));
+const ompProjectEnv = parseEnvFile(path.join(process.cwd(), configDirName, ".env"));
+
+for (const file of [ompProjectEnv, ompUserEnv, projectEnv, homeEnv]) {
 	for (const [key, value] of Object.entries(file)) {
 		if (!Bun.env[key]) {
 			Bun.env[key] = value;

@@ -135,6 +135,7 @@ Create discovery module in `discovery/`, implement discovery functions, add to c
 
 ```
 ~/.omp/agent/          User-level config
+  .env                 User-level environment variables (API keys, etc.)
   agent.db             SQLite (settings, auth credentials)
   models.yml           Custom model providers
   sessions/            Session storage (JSONL files)
@@ -147,6 +148,7 @@ Create discovery module in `discovery/`, implement discovery functions, add to c
   plugins/             Installed plugins
 
 .omp/                  Project-level config
+  .env                 Project-level environment variables
   SYSTEM.md            Project system prompt
   settings.json        Project settings
   extensions/          Project extensions
@@ -155,6 +157,8 @@ Create discovery module in `discovery/`, implement discovery functions, add to c
   mcp.json             MCP server config
   lsp.json             LSP server config
 ```
+
+**.env precedence** (first writer wins): process env > `.omp/.env` > `~/.omp/agent/.env` > `cwd/.env` > `~/.env`
 
 Config priority: `.omp` > `.pi` > `.claude` > `.codex` > `.gemini`
 

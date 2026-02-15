@@ -614,6 +614,22 @@ Set your API key in your shell profile (~/.bashrc or ~/.zshrc):
 export ANTHROPIC_API_KEY="your-key-here"
 ```
 
+Alternatively, omp loads `.env` files automatically from these locations (highest priority first):
+
+| Location | Scope |
+|---|---|
+| `.omp/.env` | Project omp config (highest `.env` priority) |
+| `~/.omp/agent/.env` | User omp config |
+| `.env` (cwd) | Project dotenv |
+| `~/.env` | User dotenv (lowest priority) |
+
+Process environment variables always win over `.env` files. Within `.env` files, the first file to define a key wins.
+
+Example `~/.omp/agent/.env`:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ### "Context limit exceeded"
 The conversation got too long. Use `/compact` to compress or `/clear` to start fresh.
 
