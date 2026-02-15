@@ -4,6 +4,8 @@ Welcome to **oh-my-pi** (omp) - your AI coding agent that lives in the terminal.
 
 ## Getting Started in 60 Seconds
 
+### Option A: Install from npm (released version)
+
 ```bash
 # 1. Install (requires Bun - install from bun.sh if you don't have it)
 bun install -g @oh-my-pi/pi-coding-agent
@@ -19,6 +21,33 @@ export GOOGLE_API_KEY="your-key-here"      # Google Gemini
 cd /path/to/your/project
 omp
 ```
+
+### Option B: Run from source (local development)
+
+If you cloned this repo and want to run your local version with all enhancements:
+
+```bash
+# 1. Install dependencies
+cd /path/to/oh-my-pi
+bun install
+
+# 2. Build the Rust native addon (required, takes a few minutes on first build)
+bun --cwd=packages/natives run build:native
+
+# 3. Set up your API key (same as above)
+export ANTHROPIC_API_KEY="your-key-here"
+
+# 4a. Run directly from source (quickest, no global install)
+bun run dev
+
+# 4b. OR link globally so the `omp` command uses your local code
+bun --cwd=packages/coding-agent link
+# Now `omp` anywhere will run your local version
+```
+
+**Shortcut:** `bun run install:dev` runs `bun install` and links both `coding-agent` and `ai` packages globally in one step.
+
+**Note:** Option A installs the published upstream version. Option B runs your local fork, which includes the [agent harness enhancements](ENHANCEMENTS.md). Use Option B if you want to test or develop against those enhancements.
 
 ## Your First Interaction
 
