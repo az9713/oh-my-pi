@@ -619,6 +619,8 @@ bun test/rpc-example.ts
 | `model-registry.test.ts` | - | Unit: model registry |
 | `settings-manager.test.ts` | - | Unit: settings |
 
+For detailed documentation of each agent harness enhancement (mock streams, executor utils, TTSR, MCP resilience, compaction metrics, streaming abort, etc.), see [../../docs/ENHANCEMENTS.md](../../docs/ENHANCEMENTS.md).
+
 Tests requiring `AgentSession` infrastructure (streaming-edit-abort, compaction, agent-session-*) are slower because they create temp directories, SQLite databases, and mock stream functions. Pure unit tests (executor-utils, ttsr, args, edit-diff) are fast.
 
 **Windows note:** `streaming-edit-abort.test.ts` may report `EBUSY` cleanup errors on Windows due to lingering SQLite handles. Tests still pass.

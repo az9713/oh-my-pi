@@ -439,6 +439,8 @@ Shared test utilities in `test/mock-stream.ts`: `MockAssistantStream`, `createMo
 | `dag.test.ts` | - | DAG dependency graph: topological sort, cycle detection (Kahn's algorithm), execution wave computation |
 | `schema.test.ts` | - | Swarm task and agent configuration schema validation |
 
+For detailed documentation of each agent harness enhancement (mock streams, telemetry, MCP resilience, compaction metrics, etc.), see [ENHANCEMENTS.md](ENHANCEMENTS.md).
+
 ### Known Platform Issues
 
 - **Windows EBUSY errors**: The `streaming-edit-abort.test.ts` `afterEach` cleanup may report `EBUSY: resource busy or locked` on Windows because SQLite file handles linger after `session.dispose()`. Tests still pass; the errors are cleanup warnings only.

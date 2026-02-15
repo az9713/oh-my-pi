@@ -196,5 +196,6 @@ See `docs/porting-from-pi-mono.md` for the full merge guide and `docs/porting-to
 - `docs/DEVELOPER_GUIDE.md` — Developer setup and architecture guide
 - `packages/coding-agent/DEVELOPMENT.md` — Coding-agent internal architecture
 - `packages/coding-agent/docs/` — Feature-specific docs (extensions, hooks, skills, models, sessions, etc.)
+- `docs/ENHANCEMENTS.md` — Agent harness enhancement documentation (why/how/what for all 8 enhancements)
 - `docs/porting-from-pi-mono.md` — Upstream merge guide
 - `docs/porting-to-natives.md` — Rust N-API porting guide
