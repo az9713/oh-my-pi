@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/az9713-oh-my-pi-badge.png)](https://mseep.ai/app/az9713-oh-my-pi)
+
 <p align="center">
   <img src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="Oh My Pi">
 </p>
